@@ -1,0 +1,29 @@
+# Оскільки хтось може працювати на Windows, а деплой на Linux-серверах (Vercel, Docker і т.д.):
+# Всі текстові файли → LF
+* text=auto eol=lf
+
+# Код (JS/TS)
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+
+# Конфіги та дані
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.env  text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# Стилі
+*.css  text eol=lf
+*.scss text eol=lf
+
+# Shell-скрипти
+*.sh   text eol=lf
+
+# Windows-специфічні файли (залишити CRLF, бо так треба)
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
