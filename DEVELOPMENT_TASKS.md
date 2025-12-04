@@ -39,6 +39,8 @@ _(Може бути реалізовано незалежно від усіх і
 
 ---
 
+Create table meaning: Wright migrations (sql)
+
 ## **Task 1.1 — Create `ai_models` table**
 
 | field             | type                | description                        |
@@ -279,7 +281,7 @@ Flow:
 10. Return:
 
 ```
-{ jobId, uploadUrl?, fileId? }
+{ jobId }
 ```
 
 ---
@@ -299,7 +301,7 @@ Returns:
 
 ---
 
-## **Task 3.5 — /healthz**
+## **Task 3.5 — /health**
 
 Return:
 
@@ -315,6 +317,11 @@ uptime: ms
 ---
 
 # 🧱 **Epic 4 — Worker Engine + AI Provider**
+
+Files what need to migrate can be find next folders: 
+./types
+./api
+./services
 
 ---
 

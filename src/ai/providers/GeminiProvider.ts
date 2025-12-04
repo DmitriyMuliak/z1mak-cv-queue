@@ -1,73 +1,105 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { SchemaService } from "../src/ai/schema/SchemaService";
-import { Mode } from "../types/mode";
+import {
+  GoogleGenAI,
+  HarmBlockThreshold,
+  HarmCategory,
+} from "@google/genai";
+import { SchemaService } from "../schema/SchemaService";
+import type { Mode } from "../../../types/mode";
 
-// https://ai.google.dev/gemini-api/docs/models
-// Rate Limits - https://ai.google.dev/gemini-api/docs/rate-limits?authuser=3
-const geminiModels = {
-  pro3: "gemini-3-pro-preview",
-  pro2dot5: "gemini-2.5-pro",
-  flash: "gemini-2.5-flash",
-  flashPreview: "gemini-2.5-flash-preview-09-2025",
-  flashLite: "gemini-2.5-flash-lite",
-};
-
-const client = new GoogleGenAI({
-  apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
-});
-
-interface CallGeminiAiParams {
+export interface GeminiRequest {
+  model: string;
   cvDescription: string;
   jobDescription?: string;
   mode: Mode;
   locale: string;
 }
 
-export const callGeminiAi = async ({
-  cvDescription,
-  jobDescription,
-  mode,
-  locale,
-}: CallGeminiAiParams) => {
-  const promptSettings = buildPromptSettings({
+export class GeminiProvider {
+  private client: GoogleGenAI;
+
+  constructor(apiKey = process.env.GEMINI_API_KEY ?? process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+    if (!apiKey) {
+      throw new Error("Gemini API key is missing");
+    }
+    this.client = new GoogleGenAI({ apiKey });
+  }
+
+  async generate({
+    model,
     cvDescription,
     jobDescription,
-    options: { mode, locale },
-  });
-
-  const schemaService = new SchemaService(mode);
-  const responseSchema = schemaService.getGenAiSchema();
-
-  // TODO: handle
-  // 1- ApiError: {"error":{"code":503,"message":"The model is overloaded. Please try again later.","status":"UNAVAILABLE"}}
-  // 2- 429 Too Many Requests {"code":429,"message":"You exceeded your current quota, please check your plan and billing
-
-  try {
-    const result = await client.models.generateContent({
-      model: geminiModels.flashLite,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: promptSettings.prompt }],
-        },
-      ],
-      config: {
-        systemInstruction: promptSettings.systemInstructions,
-        temperature: 0, // Deterministic for data extraction
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-        safetySettings,
-      },
+    mode,
+    locale,
+  }: GeminiRequest): Promise<string> {
+    const promptSettings = buildPromptSettings({
+      cvDescription,
+      jobDescription,
+      options: { mode, locale },
     });
 
-    console.log("GEMINI result", result);
+    const responseSchema = new SchemaService(mode).getGenAiSchema();
 
-    return result.text;
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
+    try {
+      const result = await this.client.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: promptSettings.prompt }],
+          },
+        ],
+        config: {
+          systemInstruction: promptSettings.systemInstructions,
+          temperature: 0,
+          responseMimeType: "application/json",
+          responseSchema,
+          safetySettings,
+        },
+      });
+
+      return result.text ?? "";
+    } catch (error) {
+      throw this.normalizeError(error);
+    }
   }
-};
+
+  private normalizeError(error: unknown): Error {
+    const status = this.extractStatus(error);
+
+    if (status === 429) {
+      const err = new Error("Gemini rate limit exceeded");
+      (err as any).status = 429;
+      return err;
+    }
+
+    if (status === 503) {
+      const err = new Error("Gemini service unavailable");
+      (err as any).status = 500;
+      return err;
+    }
+
+    if (typeof status === "number") {
+      const err = new Error((error as Error)?.message ?? "Gemini provider error");
+      (err as any).status = status;
+      return err;
+    }
+
+    return error instanceof Error ? error : new Error("Unknown Gemini provider error");
+  }
+
+  private extractStatus(error: unknown): number | undefined {
+    if (!error) return undefined;
+
+    const maybeObj = error as any;
+    if (typeof maybeObj.status === "number") return maybeObj.status;
+    if (typeof maybeObj.code === "number") return maybeObj.code;
+    if (typeof maybeObj?.error?.code === "number") return maybeObj.error.code;
+    if (typeof maybeObj?.response?.status === "number")
+      return maybeObj.response.status;
+
+    return undefined;
+  }
+}
 
 interface BuildPromptSettingsParams {
   cvDescription: string;
@@ -121,7 +153,6 @@ const getTaskContext = (mode: Mode) => {
       : "Conduct a professional comparative analysis of a candidate against a job description.";
   }
 
-  // General mode
   return domain === "it"
     ? "Conduct a comprehensive technical audit of an IT resume based on global market standards (FAANG/Big Tech)."
     : "Conduct a general professional review of a resume to identify strengths, weaknesses, and structure improvements.";
@@ -130,7 +161,6 @@ const getTaskContext = (mode: Mode) => {
 const getSystemInstructions = (mode: Mode) => {
   const { evaluationMode, domain } = mode;
 
-  // --- IT DOMAIN ---
   if (domain === "it") {
     const basePersona = `You are an elite AI Talent Analyst and Technical Recruiter with 20 years of experience in the IT industry (FAANG level).`;
 
@@ -147,7 +177,6 @@ const getSystemInstructions = (mode: Mode) => {
       `;
     }
 
-    // IT General
     return `
       ${basePersona}
       Your task is to audit the provided CV based on current global IT market standards.
@@ -160,7 +189,6 @@ const getSystemInstructions = (mode: Mode) => {
     `;
   }
 
-  // --- COMMON DOMAIN ---
   const basePersona = `You are a Senior HR Business Partner and Career Coach with extensive experience in hiring for various industries.`;
 
   if (evaluationMode === "byJob") {
@@ -176,7 +204,6 @@ const getSystemInstructions = (mode: Mode) => {
     `;
   }
 
-  // Common General
   return `
     ${basePersona}
     Your task is to review the CV to maximize the candidate's employability.
@@ -194,8 +221,6 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   const builder = new OrderedListBuilder();
 
   const langName = getLanguageName(locale);
-
-  // 1. Common Basics
   builder.add(
     `Adhere to the rules and persona described in the system prompt.`
   );
@@ -207,7 +232,6 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
     `If CV in <CV_TEXT> have no sense (maybe it's empty or contain only random string), you can skip analyzing at all and return empty strings, empty arrays, 0 for numbers`
   );
 
-  // 2. Mode Specifics
   if (evaluationMode === "byJob") {
     builder.add(
       `Read <CV_TEXT> and identify all matches and gaps compared to <JOB_DESCRIPTION>.`
@@ -227,8 +251,6 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
       `For "missingKeywords", look for actual discrepancies between the Job Description and the CV.`
     );
   } else {
-    // General Mode
-
     builder.add(
       `Evaluate the candidate based on the implied role title found in the CV header.`
     );
@@ -238,7 +260,6 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
     );
   }
 
-  // 3. Depth Specifics (Schema Sync)
   const isDeep = depth === "deep";
   const isHardMode = evaluationMode === "byJob" && isDeep;
 
@@ -256,10 +277,8 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
     );
   }
 
-  // 4. Final Reminders
-
   builder.add(
-    `PAY ATTENTION TO FIELD DESCRIPTIONS: If "be honest" is specified — do not sugarcoat. If a number is required, provide 0 if not found.`
+    `PAY ATTENTION TO FIELD DESCRIPTIONS: If "be honest" is specified - do not sugarcoat. If a number is required, provide 0 if not found.`
   );
 
   return builder.getList().join("\n");
@@ -301,5 +320,6 @@ class OrderedListBuilder {
 
   reset(): void {
     this.count = 1;
+    this.list = [];
   }
 }

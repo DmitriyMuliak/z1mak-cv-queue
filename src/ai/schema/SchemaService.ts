@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { Schema, Type } from "@google/genai";
 import { PROPERTY_DEFINITIONS, amountPlaceholder } from "./propertyDefinitions";
-import type { Mode } from "../types/mode";
+import type { Mode } from "../../../types/mode";
 
 export class SchemaService {
   private mode: Mode;

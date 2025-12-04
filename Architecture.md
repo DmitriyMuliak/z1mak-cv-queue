@@ -322,6 +322,7 @@ API & Worker:
 | ------------------- | ------------------------------------------ |
 | **README.md**       | User-facing overview, diagrams, usage      |
 | **Architecture.md** | Deep internal specification for developers |
+| **APIService**      | Info about API Service                     |
 | **docs/**           | MkDocs/GitBook extended documentation      |
 
 ---
