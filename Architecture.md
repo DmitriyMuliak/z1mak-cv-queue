@@ -294,7 +294,7 @@ Guarantees:
 
 # 🩺 14. **Health Checks**
 
-`GET /healthz` reports:
+`GET /health` reports:
 
 - Redis connectivity
 - BullMQ queue status
@@ -326,3 +326,5 @@ API & Worker:
 | **docs/**           | MkDocs/GitBook extended documentation      |
 
 ---
+
+Задачі поділяються за складністю аналізу. Чи складніший аналіз ти більше полів обробляється + використовуються різні моделі. Ліміти моделей - (мають братися з БД при старті серверу) Сервіс має мати job яка буде брати нові ліміти раз в 12 годин з БД при цьому на час взяття нових лімітів - черга припиняється (обробка нових задач). const MODEL_LIMITS = { // from db pro2dot5: { rpm: 2, rpd: 50, }, // hard flash: { rpm: 10, rpd: 250, }, // hard flashPreview: { rpm: 10, rpd: 250, }, // lite flashLite: { rpm: 15, rpd: 1000, }, // lite flashLitePreview: { rpm: 15, rpd: 1000, } // lite }; const fallbackPriorityHard = [pro2dot5,flash,flashPreview,]; const fallbackPriorityLite = [flashLitem,flashLitePreview]; Ліміти для користувачів - Одночасні аналізи - role=user: max_concurrent_jobs=2 role=admin: no limits (only model limits) Ліміти на запуск - role=user: hard: rpd: 1 light: rpd: 9 role=admin: no limits (only model limits)

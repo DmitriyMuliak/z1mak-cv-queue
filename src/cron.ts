@@ -53,19 +53,21 @@ const syncDbResults = async () => {
 
       await client.query(
         `
-        INSERT INTO job (id, user_id, resume_id, model, status, result, error, created_at, finished_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO job (id, user_id, resume_id, requested_model, processed_model, status, result, error, created_at, finished_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE
         SET status = EXCLUDED.status,
             result = EXCLUDED.result,
             error = EXCLUDED.error,
-            finished_at = EXCLUDED.finished_at
+            finished_at = EXCLUDED.finished_at,
+            processed_model = EXCLUDED.processed_model
         `,
         [
           jobId,
           meta.user_id || null,
           meta.resume_id || null,
-          meta.model || null,
+          meta.requested_model || null,
+          meta.processed_model || null,
           result.status || meta.status || "unknown",
           safeJsonParse(result.data),
           result.error || null,

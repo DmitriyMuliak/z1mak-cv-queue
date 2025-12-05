@@ -1,4 +1,4 @@
-import { Worker, QueueEvents } from "bullmq";
+import { Worker, QueueEvents, JobsOptions } from "bullmq";
 import { redisKeys } from "./redis/keys";
 import { env } from "./config/env";
 import { createRedisClient } from "./redis/client";
@@ -10,7 +10,14 @@ const modelProvider = new ModelProviderService();
 const worker = new Worker(
   env.queueName,
   async (job) => {
-    const { userId, model, fallbackModels = [], payload, role } = job.data as any;
+    const {
+      userId,
+      model,
+      fallbackModels = [],
+      payload,
+      role,
+      requestedModel,
+    } = job.data as any;
     const jobId = job.id as string;
 
     await redis.hset(redisKeys.jobMeta(jobId), {
@@ -28,6 +35,10 @@ const worker = new Worker(
         locale: payload.locale,
       });
 
+      await redis.hset(redisKeys.jobMeta(jobId), {
+        processed_model: result.usedModel,
+      });
+
       await redis.hset(redisKeys.jobResult(jobId), {
         status: "completed",
         data: result.text,
@@ -36,12 +47,14 @@ const worker = new Worker(
       });
       await removeLock(userId, jobId);
     } catch (err: any) {
+      // TODO: Review retry logic
       const status = err?.status as number | undefined;
       const retryable = err?.retryable || status === 429 || (status ?? 0) >= 500;
 
-      if (retryable && job.attemptsMade < (job.opts.attempts ?? 0)) {
-        const delayUntil = Date.now() + 5000;
-        await job.moveToDelayed(delayUntil);
+      const attempts = job.opts.attempts ?? 0;
+      if (retryable && job.attemptsMade < attempts) {
+        const delayMs = job.attemptsMade === 0 ? 10_000 : 30_000;
+        await job.moveToDelayed(Date.now() + delayMs);
         return;
       }
 

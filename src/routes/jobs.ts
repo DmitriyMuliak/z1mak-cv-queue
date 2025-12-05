@@ -1,16 +1,14 @@
 import { FastifyInstance } from "fastify";
-import type { Redis } from "ioredis";
 import { v4 as uuidv4 } from "uuid";
 import { redisKeys } from "../redis/keys";
 import { getCachedUserLimits } from "../services/limitsCache";
-import { env } from "../config/env";
 import type { Mode } from "../../types/mode";
+import { resolveModelChain } from "../services/modelSelector";
+import { getSecondsUntilMidnightPT } from "../utils/time";
 
 interface RunAiJobBody {
   userId: string;
   role: "user" | "admin";
-  model: string;
-  fallbackModels?: string[];
   payload: {
     cvDescription: string;
     jobDescription?: string;
@@ -19,7 +17,19 @@ interface RunAiJobBody {
   };
 }
 
-const CONCURRENCY_TTL_MS = 60_000;
+const MINUTE_TTL = 70;
+
+export enum LimitCode {
+  OK = 1,
+  // Concurrency Lock
+  CONCURRENCY_LIMIT_EXCEEDED = -0, // Використовуємо 0, як повертає concurrencyLock
+  // Model Limits
+  MODEL_RPM_EXCEEDED = -1,
+  MODEL_RPD_EXCEEDED = -2,
+  // User Limits
+  USER_RPM_EXCEEDED = -3,
+  USER_RPD_EXCEEDED = -4,
+}
 
 export default async function jobsRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RunAiJobBody }>("/run-ai-job", async (request, reply) => {
@@ -28,7 +38,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     if (
       !body?.userId ||
       !body?.role ||
-      !body?.model ||
       !body?.payload?.cvDescription ||
       !body?.payload?.mode ||
       !body?.payload?.locale
@@ -36,53 +45,72 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ ok: false, error: "INVALID_PAYLOAD" });
     }
 
-    const userLimits = await getCachedUserLimits(
-      fastify.redis,
-      body.userId,
-      body.role
-    );
+    const userLimits = await getCachedUserLimits(fastify.redis, body.userId, body.role);
     const isAdmin = body.role === "admin" || userLimits.unlimited;
 
     const jobId = uuidv4();
     const now = Date.now();
 
-    if (!isAdmin && userLimits.max_concurrency !== null) {
-      const ok = await fastify.redis.concurrencyLock(
-        redisKeys.userActiveJobs(body.userId),
-        now,
-        CONCURRENCY_TTL_MS,
-        userLimits.max_concurrency,
-        jobId,
-        isAdmin
+    const chainFromMode = resolveModelChain(body.payload.mode);
+    const requestedModel = chainFromMode.requestedModel;
+    const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
+
+    let selectedModel: string | null = null;
+    const dayTtl = getSecondsUntilMidnightPT();
+
+    for (const candidate of modelChain) {
+      const modelLimits = await fastify.redis.hgetall(redisKeys.modelLimits(candidate));
+
+      // Check for deleted models from DB
+      if (!modelLimits || Object.keys(modelLimits).length === 0) {
+        continue;
+      }
+
+      const modelRpm = Number(modelLimits.rpm ?? 0);
+      const modelRpd = Number(modelLimits.rpd ?? 0);
+      const userDayLimit = isAdmin ? 0 : (pickRpdLimit(userLimits, candidate) ?? 0);
+      const userMinuteLimit = 0;
+      const concurrencyLimit = isAdmin ? 0 : (userLimits.max_concurrency ?? 0);
+
+      const code = await fastify.redis.combinedCheckAndAcquire(
+        [
+          redisKeys.modelRpm(candidate),
+          redisKeys.modelRpd(candidate),
+          redisKeys.userModelRpm(body.userId, candidate),
+          redisKeys.userModelRpd(body.userId, candidate),
+          redisKeys.userActiveJobs(body.userId),
+        ],
+        [
+          modelRpm,
+          modelRpd,
+          userMinuteLimit,
+          userDayLimit,
+          concurrencyLimit,
+          MINUTE_TTL,
+          dayTtl,
+          1,
+          now,
+          jobId,
+        ]
       );
 
-      if (ok !== 1) {
+      if (code === LimitCode.OK) {
+        selectedModel = candidate;
+        break;
+      }
+      if (code === LimitCode.CONCURRENCY_LIMIT_EXCEEDED) {
         return reply.status(429).send({ ok: false, error: "CONCURRENCY_LIMIT" });
       }
-    }
-
-    if (!isAdmin) {
-      const allowedRpd = pickRpdLimit(userLimits, body.model);
-      if (allowedRpd !== null) {
-        const rpdOk = await fastify.redis.userRpdCheck(
-          redisKeys.userDailyRpd(body.userId, getUtcDate()),
-          1,
-          allowedRpd,
-          new Date(now).toISOString(),
-          isAdmin
-        );
-
-        if (rpdOk !== 1) {
-          return reply.status(429).send({ ok: false, error: "USER_RPD_LIMIT" });
-        }
+      if (code === LimitCode.USER_RPM_EXCEEDED) {
+        return reply.status(429).send({ ok: false, error: "USER_RPM_LIMIT" });
       }
+      if (code === LimitCode.USER_RPD_EXCEEDED) {
+        return reply.status(429).send({ ok: false, error: "USER_RPD_LIMIT" });
+      }
+      // LimitCode.MODEL_RPD_EXCEEDED
+      // LimitCode.MODEL_RPM_EXCEEDED
+      // -1 / -2 => try next fallback
     }
-
-    const selectedModel = await chooseFirstAvailableModel(
-      fastify.redis,
-      body.model,
-      body.fallbackModels ?? []
-    );
 
     if (!selectedModel) {
       return reply.status(429).send({ ok: false, error: "MODEL_LIMIT" });
@@ -93,8 +121,9 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       {
         jobId,
         userId: body.userId,
+        requestedModel,
         model: selectedModel,
-        fallbackModels: body.fallbackModels ?? [],
+        fallbackModels: modelChain.filter((m) => m !== selectedModel),
         payload: body.payload,
         role: body.role,
       },
@@ -103,12 +132,17 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
         attempts: 3,
         removeOnComplete: false,
         removeOnFail: false,
+        backoff: {
+          type: "fixed",
+          delay: 10000,
+        },
       }
     );
 
     await fastify.redis.hset(redisKeys.jobMeta(jobId), {
       user_id: body.userId,
-      model: selectedModel,
+      requested_model: requestedModel,
+      processed_model: selectedModel,
       created_at: new Date(now).toISOString(),
       status: "queued",
       attempts: 0,
@@ -151,29 +185,9 @@ const pickRpdLimit = (
   limits: Awaited<ReturnType<typeof getCachedUserLimits>>,
   modelId: string
 ) => {
-  const isHard = modelId.toLowerCase().includes("pro");
+  // const isHard = modelId.toLowerCase().includes("pro"); // modelsByType
+  const isHard = modelId === "pro2dot5"; // need add Hash with model types
   return isHard ? limits.hard_rpd : limits.lite_rpd;
-};
-
-const getUtcDate = () => {
-  const now = new Date();
-  return now.toISOString().slice(0, 10);
-};
-
-const chooseFirstAvailableModel = async (
-  redis: Redis,
-  primary: string,
-  fallbacks: string[]
-): Promise<string | null> => {
-  const chain = [primary, ...fallbacks];
-  for (const modelName of chain) {
-    const limits = await redis.hgetall(redisKeys.modelLimits(modelName));
-    if (limits && Object.keys(limits).length > 0) {
-      return modelName;
-    }
-  }
-
-  return null;
 };
 
 const parseMaybeJson = (input: string | undefined) => {
