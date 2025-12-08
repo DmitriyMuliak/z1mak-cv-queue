@@ -24,13 +24,13 @@ const start = async () => {
     await syncUserLimitsFromDB(fastify.redis).catch((err) => {
       fastify.log.error(err, 'syncUserLimitsFromDB');
     });
-  
+
     await startCron();
 
     await fastify.listen({ port: env.port, host: '0.0.0.0' });
 
     const shutdown = async () => {
-      await stopCron(); 
+      await stopCron();
       await fastify.close();
       process.exit(0);
     };

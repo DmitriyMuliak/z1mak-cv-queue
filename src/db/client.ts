@@ -26,13 +26,17 @@ class SupabaseMockClient {
   private warnMissingConnection() {
     if (this.warnedMissing) return;
     this.warnedMissing = true;
-    console.warn('[SupabaseMock] SUPABASE_URL/KEY not provided, using no-op mock client.');
+    console.warn(
+      '[SupabaseMock] SUPABASE_URL/KEY not provided, using no-op mock client.'
+    );
   }
 
   private warnNotImplemented(sql: string) {
     if (this.warnedNotImplemented) return;
     this.warnedNotImplemented = true;
-    console.warn(`[SupabaseMock] Query passthrough not implemented yet. SQL received: ${sql}`);
+    console.warn(
+      `[SupabaseMock] Query passthrough not implemented yet. SQL received: ${sql}`
+    );
   }
 
   async query<T = unknown>(sql: string, _params?: unknown[]): Promise<QueryResult<T>> {

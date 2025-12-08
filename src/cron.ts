@@ -46,9 +46,12 @@ const reloadModelLimits = async () => {
     return;
   }
 
-  const res = await supabaseClient.query<{ id: string; rpm: number; rpd: number; updated_at?: Date }>(
-    'SELECT id, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC'
-  );
+  const res = await supabaseClient.query<{
+    id: string;
+    rpm: number;
+    rpd: number;
+    updated_at?: Date;
+  }>('SELECT id, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC');
 
   for (const row of res.rows) {
     await redis.hset(redisKeys.modelLimits(row.id), {
@@ -112,36 +115,41 @@ const syncDbResults = async () => {
 
 const cleanupOrphanLocks = async () => {
   const keys = await redis.keys('user:*:active_jobs');
-  
-  await Promise.all(keys.map(async (key) => {
-    const jobs = await redis.zrange(key, 0, -1);
-    
-    if (jobs.length === 0) return;
 
-    const pipeline = redis.pipeline();
-    let jobsToClean: string[] = [];
+  await Promise.all(
+    keys.map(async (key) => {
+      const jobs = await redis.zrange(key, 0, -1);
 
-    for (const jobId of jobs) {
-      pipeline.exists(redisKeys.jobResult(jobId));
-      jobsToClean.push(jobId);
-    }
+      if (jobs.length === 0) return;
 
-    const results = await pipeline.exec() ?? [];
-    const cleanPipeline = redis.pipeline();
-    
-    for (let i = 0; i < results.length; i++) {
-      const [err, exists] = results[i];
-      if (err) {
-        console.error(`Error checking job result existence for ${jobsToClean[i]}:`, err);
-        continue;
+      const pipeline = redis.pipeline();
+      let jobsToClean: string[] = [];
+
+      for (const jobId of jobs) {
+        pipeline.exists(redisKeys.jobResult(jobId));
+        jobsToClean.push(jobId);
       }
-      if (exists) { 
-        cleanPipeline.zrem(key, jobsToClean[i]);
+
+      const results = (await pipeline.exec()) ?? [];
+      const cleanPipeline = redis.pipeline();
+
+      for (let i = 0; i < results.length; i++) {
+        const [err, exists] = results[i];
+        if (err) {
+          console.error(
+            `Error checking job result existence for ${jobsToClean[i]}:`,
+            err
+          );
+          continue;
+        }
+        if (exists) {
+          cleanPipeline.zrem(key, jobsToClean[i]);
+        }
       }
-    }
-    
-    await cleanPipeline.exec();
-  }));
+
+      await cleanPipeline.exec();
+    })
+  );
 };
 
 const safeJsonParse = (val: string | undefined) => {

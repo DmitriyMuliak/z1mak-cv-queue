@@ -22,7 +22,7 @@ const MINUTE_TTL = 70;
 export enum LimitCode {
   OK = 1,
   // Concurrency Lock
-  CONCURRENCY_LIMIT_EXCEEDED = -0, 
+  CONCURRENCY_LIMIT_EXCEEDED = -0,
   // Model Limits
   MODEL_RPM_EXCEEDED = -1,
   MODEL_RPD_EXCEEDED = -2,
@@ -68,15 +68,10 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
 
       const modelRpm = Number(modelLimits.rpm ?? 0);
       const modelRpd = Number(modelLimits.rpd ?? 0);
-      
-      const userMinuteLimit = isAdmin ? 0 : 4;
-      
+      const userMinuteLimit = 0; // disable user RPM (model limits cover throughput)
       const userDayLimit = isAdmin ? 0 : (pickRpdLimit(userLimits, candidate) ?? 0);
-      
-      const concurrencyLimit = isAdmin 
-        ? 0 
-        : (userLimits.max_concurrency ?? 0);
-        
+      const concurrencyLimit = isAdmin ? 0 : (userLimits.max_concurrency ?? 0);
+
       const todayPT = getCurrentDatePT();
 
       const code = await fastify.redis.combinedCheckAndAcquire(
@@ -94,11 +89,11 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
           userDayLimit,
           concurrencyLimit,
           MINUTE_TTL,
-          dayTtl,
+          dayTtl, // Model RPD
           1,
           now,
           jobId,
-          dayTtl, 
+          dayTtl, // User RPD
         ]
       );
 
@@ -109,8 +104,7 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       if (code === LimitCode.CONCURRENCY_LIMIT_EXCEEDED) {
         return reply.status(429).send({ ok: false, error: 'CONCURRENCY_LIMIT' });
       }
-      // Оскільки ми встановили RPM для адмінів на 0, цей ліміт спрацює лише для звичайних користувачів
-      if (code === LimitCode.USER_RPM_EXCEEDED) { 
+      if (code === LimitCode.USER_RPM_EXCEEDED) {
         return reply.status(429).send({ ok: false, error: 'USER_RPM_LIMIT' });
       }
       if (code === LimitCode.USER_RPD_EXCEEDED) {
@@ -132,7 +126,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
         userId: body.userId,
         requestedModel,
         model: selectedModel,
-        // fallbackModels: modelChain.filter((m) => m !== selectedModel), // Більше не потрібні у воркері
         payload: body.payload,
         role: body.role,
       },
