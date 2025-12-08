@@ -119,36 +119,37 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       return reply.status(429).send({ ok: false, error: 'MODEL_LIMIT' });
     }
 
-    await fastify.queue.add(
-      'ai-job',
-      {
-        jobId,
-        userId: body.userId,
-        requestedModel,
-        model: selectedModel,
-        payload: body.payload,
-        role: body.role,
-      },
-      {
-        jobId,
-        attempts: 3,
-        removeOnComplete: false,
-        removeOnFail: false,
-        backoff: {
-          type: 'fixed',
-          delay: 10000,
+    await Promise.all([
+      fastify.queue.add(
+        'ai-job',
+        {
+          jobId,
+          userId: body.userId,
+          requestedModel,
+          model: selectedModel,
+          payload: body.payload,
+          role: body.role,
         },
-      }
-    );
-
-    await fastify.redis.hset(redisKeys.jobMeta(jobId), {
-      user_id: body.userId,
-      requested_model: requestedModel,
-      processed_model: selectedModel,
-      created_at: new Date(now).toISOString(),
-      status: 'queued',
-      attempts: 0,
-    });
+        {
+          jobId,
+          attempts: 3,
+          removeOnComplete: false,
+          removeOnFail: false,
+          backoff: {
+            type: 'fixed',
+            delay: 10000,
+          },
+        }
+      ),
+      fastify.redis.hset(redisKeys.jobMeta(jobId), {
+        user_id: body.userId,
+        requested_model: requestedModel,
+        processed_model: selectedModel,
+        created_at: new Date(now).toISOString(),
+        status: 'queued',
+        attempts: 0,
+      }),
+    ]);
 
     return { jobId };
   });

@@ -123,7 +123,7 @@ const cleanupOrphanLocks = async () => {
       if (jobs.length === 0) return;
 
       const pipeline = redis.pipeline();
-      let jobsToClean: string[] = [];
+      const jobsToClean: string[] = [];
 
       for (const jobId of jobs) {
         pipeline.exists(redisKeys.jobResult(jobId));

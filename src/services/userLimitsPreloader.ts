@@ -48,8 +48,7 @@ export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
 
   try {
     const results = (await pipeline.exec()) ?? [];
-
-    const successCount = results.filter(([err, _]) => err === null).length;
+    const successCount = results.filter(([err]) => err === null).length;
 
     console.log(
       `✅ Успішно синхронізовано ліміти для ${successCount} з ${rows.length} користувачів через Pipelining.`

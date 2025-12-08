@@ -40,6 +40,7 @@ class SupabaseMockClient {
   }
 
   async query<T = unknown>(sql: string, _params?: unknown[]): Promise<QueryResult<T>> {
+    void _params;
     if (!this.client) {
       this.warnMissingConnection();
       return { rows: [] as T[] };
