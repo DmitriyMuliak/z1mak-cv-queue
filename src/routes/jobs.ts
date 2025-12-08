@@ -6,9 +6,6 @@ import { resolveModelChain } from '../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../utils/time';
 import type { Mode } from '../../types/mode';
 
-// 🛑 ВИДАЛЕНО: Ця константа більше не використовується для TTL
-// const USER_RPD_CLEANUP_TTL = 48 * 60 * 60; // 172800 секунд
-
 interface RunAiJobBody {
   userId: string;
   role: 'user' | 'admin';
@@ -72,8 +69,7 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       const modelRpm = Number(modelLimits.rpm ?? 0);
       const modelRpd = Number(modelLimits.rpd ?? 0);
       
-      // 💡 ВИПРАВЛЕННЯ 1: User RPM для адмінів = 0 (без ліміту)
-      const userMinuteLimit = 4;
+      const userMinuteLimit = isAdmin ? 0 : 4;
       
       const userDayLimit = isAdmin ? 0 : (pickRpdLimit(userLimits, candidate) ?? 0);
       
@@ -102,7 +98,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
           1,
           now,
           jobId,
-          // 💡 ВИПРАВЛЕННЯ 2: Передаємо коректний TTL до півночі
           dayTtl, 
         ]
       );

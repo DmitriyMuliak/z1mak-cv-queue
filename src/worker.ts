@@ -114,12 +114,10 @@ queueEvents.on('failed', async ({ jobId, failedReason }) => {
   const model = meta.processed_model || meta.requested_model; 
   
   if (userId && model) {
-      removeLock(userId, jobId)
-      // 💡 Повернення токенів при фінальному провалі
-      await returnTokens(userId, model); 
+    await removeLock(userId, jobId)
+    await returnTokens(userId, model); 
   }
 
-  // Фінальний запис статусу
   await redis.hset(redisKeys.jobResult(jobId as string), {
     status: 'failed',
     error: failedReason,
