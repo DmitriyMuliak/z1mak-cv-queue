@@ -6,6 +6,7 @@ import jobsRoutes from './routes/jobs';
 import healthRoutes from './routes/health';
 import { env } from './config/env';
 import { syncUserLimitsFromDB } from './services/userLimitsPreloader';
+import { startCron, stopCron } from './cron';
 
 const start = async () => {
   const fastify = Fastify({ logger: true });
@@ -23,8 +24,20 @@ const start = async () => {
     await syncUserLimitsFromDB(fastify.redis).catch((err) => {
       fastify.log.error(err, 'syncUserLimitsFromDB');
     });
+  
+    await startCron();
 
     await fastify.listen({ port: env.port, host: '0.0.0.0' });
+
+    const shutdown = async () => {
+      await stopCron(); 
+      await fastify.close();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+
     fastify.log.info(`Server running on port ${env.port}`);
   } catch (err) {
     fastify.log.error(err);

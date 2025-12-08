@@ -1,7 +1,6 @@
 import { createRedisClient } from './redis/client';
 import { redisKeys } from './redis/keys';
-import { pool } from './db/client';
-import { env } from './config/env';
+import { supabaseClient } from './db/client';
 
 const redis = createRedisClient();
 
@@ -12,8 +11,10 @@ const ORPHAN_CLEAN_MS = 60 * 60 * 1000;
 let modelTimer: NodeJS.Timeout | undefined;
 let syncTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
+let warnedModelSkip = false;
+let warnedDbSyncSkip = false;
 
-const start = async () => {
+export const startCron = async () => {
   await reloadModelLimits();
   modelTimer = setInterval(reloadModelLimits, MODEL_RELOAD_MS);
 
@@ -24,9 +25,28 @@ const start = async () => {
   cleanupTimer = setInterval(cleanupOrphanLocks, ORPHAN_CLEAN_MS);
 };
 
+export const stopCron = async () => {
+  if (modelTimer) clearInterval(modelTimer);
+  if (syncTimer) clearInterval(syncTimer);
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  modelTimer = undefined;
+  syncTimer = undefined;
+  cleanupTimer = undefined;
+
+  await redis.quit();
+  await supabaseClient.end();
+};
+
 const reloadModelLimits = async () => {
-  if (!pool) return;
-  const res = await pool.query(
+  if (supabaseClient.isMock) {
+    if (!warnedModelSkip) {
+      console.warn('[Cron] Supabase not configured, skipping model limits reload.');
+      warnedModelSkip = true;
+    }
+    return;
+  }
+
+  const res = await supabaseClient.query<{ id: string; rpm: number; rpd: number; updated_at?: Date }>(
     'SELECT id, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC'
   );
 
@@ -40,11 +60,18 @@ const reloadModelLimits = async () => {
 };
 
 const syncDbResults = async () => {
-  if (!pool) return;
+  if (supabaseClient.isMock) {
+    if (!warnedDbSyncSkip) {
+      console.warn('[Cron] Supabase not configured, skipping DB sync of job results.');
+      warnedDbSyncSkip = true;
+    }
+    return;
+  }
+
   const keys = await redis.keys('job:*:result');
   if (keys.length === 0) return;
 
-  const client = await pool.connect();
+  const client = await supabaseClient.connect();
   try {
     for (const resultKey of keys) {
       const jobId = resultKey.split(':')[1];
@@ -79,21 +106,42 @@ const syncDbResults = async () => {
       await redis.del(resultKey, redisKeys.jobMeta(jobId));
     }
   } finally {
-    client.release();
+    await client.release();
   }
 };
 
 const cleanupOrphanLocks = async () => {
   const keys = await redis.keys('user:*:active_jobs');
-  for (const key of keys) {
+  
+  await Promise.all(keys.map(async (key) => {
     const jobs = await redis.zrange(key, 0, -1);
+    
+    if (jobs.length === 0) return;
+
+    const pipeline = redis.pipeline();
+    let jobsToClean: string[] = [];
+
     for (const jobId of jobs) {
-      const resultExists = await redis.exists(redisKeys.jobResult(jobId));
-      if (resultExists) {
-        await redis.zrem(key, jobId);
+      pipeline.exists(redisKeys.jobResult(jobId));
+      jobsToClean.push(jobId);
+    }
+
+    const results = await pipeline.exec() ?? [];
+    const cleanPipeline = redis.pipeline();
+    
+    for (let i = 0; i < results.length; i++) {
+      const [err, exists] = results[i];
+      if (err) {
+        console.error(`Error checking job result existence for ${jobsToClean[i]}:`, err);
+        continue;
+      }
+      if (exists) { 
+        cleanPipeline.zrem(key, jobsToClean[i]);
       }
     }
-  }
+    
+    await cleanPipeline.exec();
+  }));
 };
 
 const safeJsonParse = (val: string | undefined) => {
@@ -104,20 +152,3 @@ const safeJsonParse = (val: string | undefined) => {
     return null;
   }
 };
-
-const shutdown = async () => {
-  if (modelTimer) clearInterval(modelTimer);
-  if (syncTimer) clearInterval(syncTimer);
-  if (cleanupTimer) clearInterval(cleanupTimer);
-  await redis.quit();
-  if (pool) await pool.end();
-  process.exit(0);
-};
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
-
-void start().catch((err) => {
-  console.error('Cron failed to start', err);
-  process.exit(1);
-});

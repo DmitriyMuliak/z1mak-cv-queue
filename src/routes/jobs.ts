@@ -6,7 +6,8 @@ import { resolveModelChain } from '../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../utils/time';
 import type { Mode } from '../../types/mode';
 
-const USER_RPD_CLEANUP_TTL = 48 * 60 * 60; // 172800 секунд
+// 🛑 ВИДАЛЕНО: Ця константа більше не використовується для TTL
+// const USER_RPD_CLEANUP_TTL = 48 * 60 * 60; // 172800 секунд
 
 interface RunAiJobBody {
   userId: string;
@@ -24,7 +25,7 @@ const MINUTE_TTL = 70;
 export enum LimitCode {
   OK = 1,
   // Concurrency Lock
-  CONCURRENCY_LIMIT_EXCEEDED = -0, // Використовуємо 0, як повертає concurrencyLock
+  CONCURRENCY_LIMIT_EXCEEDED = -0, 
   // Model Limits
   MODEL_RPM_EXCEEDED = -1,
   MODEL_RPD_EXCEEDED = -2,
@@ -58,7 +59,7 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
 
     let selectedModel: string | null = null;
-    const dayTtl = getSecondsUntilMidnightPT();
+    const dayTtl = getSecondsUntilMidnightPT(); // TTL до 00:00 PT
 
     for (const candidate of modelChain) {
       const modelLimits = await fastify.redis.hgetall(redisKeys.modelLimits(candidate));
@@ -70,9 +71,16 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
 
       const modelRpm = Number(modelLimits.rpm ?? 0);
       const modelRpd = Number(modelLimits.rpd ?? 0);
+      
+      // 💡 ВИПРАВЛЕННЯ 1: User RPM для адмінів = 0 (без ліміту)
+      const userMinuteLimit = 4;
+      
       const userDayLimit = isAdmin ? 0 : (pickRpdLimit(userLimits, candidate) ?? 0);
-      const userMinuteLimit = 123450; // '-inf'
-      const concurrencyLimit = isAdmin ? 0 : (userLimits.max_concurrency ?? 0);
+      
+      const concurrencyLimit = isAdmin 
+        ? 0 
+        : (userLimits.max_concurrency ?? 0);
+        
       const todayPT = getCurrentDatePT();
 
       const code = await fastify.redis.combinedCheckAndAcquire(
@@ -94,7 +102,8 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
           1,
           now,
           jobId,
-          USER_RPD_CLEANUP_TTL,
+          // 💡 ВИПРАВЛЕННЯ 2: Передаємо коректний TTL до півночі
+          dayTtl, 
         ]
       );
 
@@ -105,7 +114,8 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
       if (code === LimitCode.CONCURRENCY_LIMIT_EXCEEDED) {
         return reply.status(429).send({ ok: false, error: 'CONCURRENCY_LIMIT' });
       }
-      if (code === LimitCode.USER_RPM_EXCEEDED) {
+      // Оскільки ми встановили RPM для адмінів на 0, цей ліміт спрацює лише для звичайних користувачів
+      if (code === LimitCode.USER_RPM_EXCEEDED) { 
         return reply.status(429).send({ ok: false, error: 'USER_RPM_LIMIT' });
       }
       if (code === LimitCode.USER_RPD_EXCEEDED) {
@@ -127,7 +137,7 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
         userId: body.userId,
         requestedModel,
         model: selectedModel,
-        fallbackModels: modelChain.filter((m) => m !== selectedModel),
+        // fallbackModels: modelChain.filter((m) => m !== selectedModel), // Більше не потрібні у воркері
         payload: body.payload,
         role: body.role,
       },

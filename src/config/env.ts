@@ -4,6 +4,8 @@ export interface EnvConfig {
   queueName: string;
   internalApiKey?: string;
   port: number;
+  supabaseUrl?: string;
+  supabaseKey?: string;
 }
 
 const numberFromEnv = (value: string | undefined, fallback: number): number => {
@@ -17,4 +19,6 @@ export const env: EnvConfig = {
   queueName: process.env.BULLMQ_QUEUE || 'ai-jobs',
   internalApiKey: process.env.INTERNAL_API_KEY,
   port: numberFromEnv(process.env.PORT, 4000),
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseKey: process.env.SUPABASE_KEY,
 };
