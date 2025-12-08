@@ -1,6 +1,6 @@
-import Redis, { RedisOptions } from "ioredis";
-import { env } from "../config/env";
-import { luaScripts } from "./scripts";
+import Redis, { RedisOptions } from 'ioredis';
+import { env } from '../config/env';
+import { luaScripts } from './scripts';
 
 export interface RedisWithScripts extends Redis {
   combinedCheckAndAcquire(
@@ -15,7 +15,8 @@ export interface RedisWithScripts extends Redis {
       number,
       number,
       number,
-      string
+      string,
+      number,
     ]
   ): Promise<number>;
 }
@@ -23,7 +24,7 @@ export interface RedisWithScripts extends Redis {
 export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts => {
   const client = new Redis(env.redisUrl, options);
 
-  client.defineCommand("combinedCheckAndAcquire", {
+  client.defineCommand('combinedCheckAndAcquire', {
     numberOfKeys: 5,
     lua: luaScripts.combinedCheckAndAcquire,
   });

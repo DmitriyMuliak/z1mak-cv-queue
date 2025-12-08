@@ -1,10 +1,6 @@
-import {
-  GoogleGenAI,
-  HarmBlockThreshold,
-  HarmCategory,
-} from "@google/genai";
-import { SchemaService } from "../schema/SchemaService";
-import type { Mode } from "../../../types/mode";
+import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
+import { SchemaService } from '../schema/SchemaService';
+import type { Mode } from '../../../types/mode';
 
 export interface GeminiRequest {
   model: string;
@@ -17,9 +13,11 @@ export interface GeminiRequest {
 export class GeminiProvider {
   private client: GoogleGenAI;
 
-  constructor(apiKey = process.env.GEMINI_API_KEY ?? process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+  constructor(
+    apiKey = process.env.GEMINI_API_KEY ?? process.env.NEXT_PUBLIC_GEMINI_API_KEY
+  ) {
     if (!apiKey) {
-      throw new Error("Gemini API key is missing");
+      throw new Error('Gemini API key is missing');
     }
     this.client = new GoogleGenAI({ apiKey });
   }
@@ -44,20 +42,20 @@ export class GeminiProvider {
         model,
         contents: [
           {
-            role: "user",
+            role: 'user',
             parts: [{ text: promptSettings.prompt }],
           },
         ],
         config: {
           systemInstruction: promptSettings.systemInstructions,
           temperature: 0,
-          responseMimeType: "application/json",
+          responseMimeType: 'application/json',
           responseSchema,
           safetySettings,
         },
       });
 
-      return result.text ?? "";
+      return result.text ?? '';
     } catch (error) {
       throw this.normalizeError(error);
     }
@@ -67,35 +65,34 @@ export class GeminiProvider {
     const status = this.extractStatus(error);
 
     if (status === 429) {
-      const err = new Error("Gemini rate limit exceeded");
+      const err = new Error('Gemini rate limit exceeded');
       (err as any).status = 429;
       return err;
     }
 
     if (status === 503) {
-      const err = new Error("Gemini service unavailable");
+      const err = new Error('Gemini service unavailable');
       (err as any).status = 500;
       return err;
     }
 
-    if (typeof status === "number") {
-      const err = new Error((error as Error)?.message ?? "Gemini provider error");
+    if (typeof status === 'number') {
+      const err = new Error((error as Error)?.message ?? 'Gemini provider error');
       (err as any).status = status;
       return err;
     }
 
-    return error instanceof Error ? error : new Error("Unknown Gemini provider error");
+    return error instanceof Error ? error : new Error('Unknown Gemini provider error');
   }
 
   private extractStatus(error: unknown): number | undefined {
     if (!error) return undefined;
 
     const maybeObj = error as any;
-    if (typeof maybeObj.status === "number") return maybeObj.status;
-    if (typeof maybeObj.code === "number") return maybeObj.code;
-    if (typeof maybeObj?.error?.code === "number") return maybeObj.error.code;
-    if (typeof maybeObj?.response?.status === "number")
-      return maybeObj.response.status;
+    if (typeof maybeObj.status === 'number') return maybeObj.status;
+    if (typeof maybeObj.code === 'number') return maybeObj.code;
+    if (typeof maybeObj?.error?.code === 'number') return maybeObj.error.code;
+    if (typeof maybeObj?.response?.status === 'number') return maybeObj.response.status;
 
     return undefined;
   }
@@ -118,7 +115,7 @@ const buildPromptSettings = ({
   options,
 }: BuildPromptSettingsParams) => {
   const { mode } = options;
-  const isByJob = mode.evaluationMode === "byJob";
+  const isByJob = mode.evaluationMode === 'byJob';
 
   let inputDataBlock = `<CV_TEXT>\n${cvDescription}\n</CV_TEXT>`;
 
@@ -147,24 +144,24 @@ const buildPromptSettings = ({
 const getTaskContext = (mode: Mode) => {
   const { evaluationMode, domain } = mode;
 
-  if (evaluationMode === "byJob") {
-    return domain === "it"
-      ? "Conduct a technical comparative analysis of an IT candidate against a vacancy."
-      : "Conduct a professional comparative analysis of a candidate against a job description.";
+  if (evaluationMode === 'byJob') {
+    return domain === 'it'
+      ? 'Conduct a technical comparative analysis of an IT candidate against a vacancy.'
+      : 'Conduct a professional comparative analysis of a candidate against a job description.';
   }
 
-  return domain === "it"
-    ? "Conduct a comprehensive technical audit of an IT resume based on global market standards (FAANG/Big Tech)."
-    : "Conduct a general professional review of a resume to identify strengths, weaknesses, and structure improvements.";
+  return domain === 'it'
+    ? 'Conduct a comprehensive technical audit of an IT resume based on global market standards (FAANG/Big Tech).'
+    : 'Conduct a general professional review of a resume to identify strengths, weaknesses, and structure improvements.';
 };
 
 const getSystemInstructions = (mode: Mode) => {
   const { evaluationMode, domain } = mode;
 
-  if (domain === "it") {
+  if (domain === 'it') {
     const basePersona = `You are an elite AI Talent Analyst and Technical Recruiter with 20 years of experience in the IT industry (FAANG level).`;
 
-    if (evaluationMode === "byJob") {
+    if (evaluationMode === 'byJob') {
       return `
         ${basePersona}
         Your task is to conduct a deep and ruthlessly honest analysis of the provided CV against the Job Description.
@@ -191,7 +188,7 @@ const getSystemInstructions = (mode: Mode) => {
 
   const basePersona = `You are a Senior HR Business Partner and Career Coach with extensive experience in hiring for various industries.`;
 
-  if (evaluationMode === "byJob") {
+  if (evaluationMode === 'byJob') {
     return `
       ${basePersona}
       Your task is to determine if the candidate is a good fit for the specific role described.
@@ -221,9 +218,7 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   const builder = new OrderedListBuilder();
 
   const langName = getLanguageName(locale);
-  builder.add(
-    `Adhere to the rules and persona described in the system prompt.`
-  );
+  builder.add(`Adhere to the rules and persona described in the system prompt.`);
   builder.add(`Analyze the input data and populate the output JSON structure.`);
   builder.add(
     `Write the answer in ${langName} language, but DO NOT translate specific domain terminology (keep tech stack/role names in English).`
@@ -232,19 +227,17 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
     `If CV in <CV_TEXT> have no sense (maybe it's empty or contain only random string), you can skip analyzing at all and return empty strings, empty arrays, 0 for numbers`
   );
 
-  if (evaluationMode === "byJob") {
+  if (evaluationMode === 'byJob') {
     builder.add(
       `Read <CV_TEXT> and identify all matches and gaps compared to <JOB_DESCRIPTION>.`
     );
 
-    if (domain === "it") {
+    if (domain === 'it') {
       builder.add(
         `Verify if the candidate knows the specific versions or ecosystem tools mentioned in the vacancy.`
       );
     } else {
-      builder.add(
-        `Focus on experience relevance and soft skills requirements.`
-      );
+      builder.add(`Focus on experience relevance and soft skills requirements.`);
     }
 
     builder.add(
@@ -255,13 +248,11 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
       `Evaluate the candidate based on the implied role title found in the CV header.`
     );
 
-    builder.add(
-      `Focus on "Actionable Improvement Plan" to make this CV market-ready.`
-    );
+    builder.add(`Focus on "Actionable Improvement Plan" to make this CV market-ready.`);
   }
 
-  const isDeep = depth === "deep";
-  const isHardMode = evaluationMode === "byJob" && isDeep;
+  const isDeep = depth === 'deep';
+  const isHardMode = evaluationMode === 'byJob' && isDeep;
 
   if (isHardMode) {
     builder.add(
@@ -272,20 +263,17 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
       `Generate "suggestedInterviewQuestions" to probe the identified weak spots.`
     );
   } else {
-    builder.add(
-      `Provide a high-level summary without deep granular skill breakdown.`
-    );
+    builder.add(`Provide a high-level summary without deep granular skill breakdown.`);
   }
 
   builder.add(
     `PAY ATTENTION TO FIELD DESCRIPTIONS: If "be honest" is specified - do not sugarcoat. If a number is required, provide 0 if not found.`
   );
 
-  return builder.getList().join("\n");
+  return builder.getList().join('\n');
 };
 
-const getLanguageName = (locale: string) =>
-  locale === "uk" ? "Ukrainian" : "English";
+const getLanguageName = (locale: string) => (locale === 'uk' ? 'Ukrainian' : 'English');
 
 const safetySettings = [
   {

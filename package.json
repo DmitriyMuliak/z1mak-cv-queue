@@ -25,12 +25,14 @@
     "bullmq": "^5.12.5",
     "fastify": "^4.27.0",
     "fastify-plugin": "^4.5.1",
-    "ioredis": "^5.4.2",
     "immer": "^10.1.1",
+    "ioredis": "^5.4.2",
+    "luxon": "^3.7.2",
     "pg": "^8.13.1",
     "uuid": "^11.0.3"
   },
   "devDependencies": {
+    "@types/luxon": "^3.7.1",
     "@types/node": "^22.9.0",
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.15.0",

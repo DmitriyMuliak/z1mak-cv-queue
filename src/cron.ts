@@ -1,7 +1,7 @@
-import { createRedisClient } from "./redis/client";
-import { redisKeys } from "./redis/keys";
-import { pool } from "./db/client";
-import { env } from "./config/env";
+import { createRedisClient } from './redis/client';
+import { redisKeys } from './redis/keys';
+import { pool } from './db/client';
+import { env } from './config/env';
 
 const redis = createRedisClient();
 
@@ -27,7 +27,7 @@ const start = async () => {
 const reloadModelLimits = async () => {
   if (!pool) return;
   const res = await pool.query(
-    "SELECT id, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC"
+    'SELECT id, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC'
   );
 
   for (const row of res.rows) {
@@ -41,13 +41,13 @@ const reloadModelLimits = async () => {
 
 const syncDbResults = async () => {
   if (!pool) return;
-  const keys = await redis.keys("job:*:result");
+  const keys = await redis.keys('job:*:result');
   if (keys.length === 0) return;
 
   const client = await pool.connect();
   try {
     for (const resultKey of keys) {
-      const jobId = resultKey.split(":")[1];
+      const jobId = resultKey.split(':')[1];
       const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
       const result = await redis.hgetall(resultKey);
 
@@ -68,7 +68,7 @@ const syncDbResults = async () => {
           meta.resume_id || null,
           meta.requested_model || null,
           meta.processed_model || null,
-          result.status || meta.status || "unknown",
+          result.status || meta.status || 'unknown',
           safeJsonParse(result.data),
           result.error || null,
           meta.created_at || new Date().toISOString(),
@@ -84,7 +84,7 @@ const syncDbResults = async () => {
 };
 
 const cleanupOrphanLocks = async () => {
-  const keys = await redis.keys("user:*:active_jobs");
+  const keys = await redis.keys('user:*:active_jobs');
   for (const key of keys) {
     const jobs = await redis.zrange(key, 0, -1);
     for (const jobId of jobs) {
@@ -114,10 +114,10 @@ const shutdown = async () => {
   process.exit(0);
 };
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 void start().catch((err) => {
-  console.error("Cron failed to start", err);
+  console.error('Cron failed to start', err);
   process.exit(1);
 });

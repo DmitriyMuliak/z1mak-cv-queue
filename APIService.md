@@ -16,17 +16,17 @@ flowchart TD
 
 ```ts
 // src/middleware/internalAuth.ts
-import { FastifyRequest, FastifyReply } from "fastify";
+import { FastifyRequest, FastifyReply } from 'fastify';
 
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY!;
 
 export async function internalAuth(req: FastifyRequest, reply: FastifyReply) {
-  const headerKey = req.headers["x-internal-key"];
+  const headerKey = req.headers['x-internal-key'];
 
   if (!headerKey || headerKey !== INTERNAL_KEY) {
     return reply.status(401).send({
       ok: false,
-      error: "UNAUTHORIZED_INTERNAL_REQUEST",
+      error: 'UNAUTHORIZED_INTERNAL_REQUEST',
     });
   }
 }
@@ -35,17 +35,17 @@ export async function internalAuth(req: FastifyRequest, reply: FastifyReply) {
 ### Підключення:
 
 ```ts
-fastify.addHook("preHandler", internalAuth);
+fastify.addHook('preHandler', internalAuth);
 ```
 
 ### Використання (Next.js → Jobs API):
 
 ```ts
-await fetch(JOBS_URL + "/run", {
-  method: "POST",
+await fetch(JOBS_URL + '/run', {
+  method: 'POST',
   headers: {
-    "x-internal-key": process.env.INTERNAL_API_KEY!,
-    "content-type": "application/json",
+    'x-internal-key': process.env.INTERNAL_API_KEY!,
+    'content-type': 'application/json',
   },
   body: JSON.stringify(payload),
 });
@@ -67,16 +67,13 @@ Next.js має підтверджувати:
 
 ```ts
 // app/api/run-ai-job/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth"; // твоє auth рішення
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth'; // твоє auth рішення
 
 export async function POST(req: NextRequest) {
   const session = await auth(req);
   if (!session) {
-    return NextResponse.json(
-      { ok: false, error: "UNAUTHORIZED" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
   const body = await req.json();
@@ -87,11 +84,11 @@ export async function POST(req: NextRequest) {
     role: session.user.role,
   };
 
-  const r = await fetch(process.env.JOBS_API_URL + "/run", {
-    method: "POST",
+  const r = await fetch(process.env.JOBS_API_URL + '/run', {
+    method: 'POST',
     headers: {
-      "x-internal-key": process.env.INTERNAL_API_KEY!,
-      "content-type": "application/json",
+      'x-internal-key': process.env.INTERNAL_API_KEY!,
+      'content-type': 'application/json',
     },
     body: JSON.stringify(trustedPayload),
   });
@@ -107,18 +104,18 @@ export async function POST(req: NextRequest) {
 
 ```ts
 // src/plugins/corsDeny.ts
-import { FastifyPluginAsync } from "fastify";
+import { FastifyPluginAsync } from 'fastify';
 
 export const corsDeny: FastifyPluginAsync = async (fastify) => {
-  fastify.addHook("onRequest", (req, reply, done) => {
+  fastify.addHook('onRequest', (req, reply, done) => {
     const origin = req.headers.origin;
 
     // Якщо запит прийшов з браузера — блокуємо
     if (origin) {
       reply.code(403).send({
         ok: false,
-        error: "CORS_FORBIDDEN",
-        message: "This service is not accessible from browsers.",
+        error: 'CORS_FORBIDDEN',
+        message: 'This service is not accessible from browsers.',
       });
       return;
     }

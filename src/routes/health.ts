@@ -1,8 +1,8 @@
-import { FastifyInstance } from "fastify";
-import os from "os";
+import { FastifyInstance } from 'fastify';
+import os from 'os';
 
 export default async function healthRoutes(fastify: FastifyInstance) {
-  fastify.get("/health", async () => {
+  fastify.get('/health', async () => {
     const redisOk = await fastify.redis
       .ping()
       .then(() => true)
@@ -13,7 +13,7 @@ export default async function healthRoutes(fastify: FastifyInstance) {
     const memory = process.memoryUsage();
 
     return {
-      redis: redisOk ? "ok" : "error",
+      redis: redisOk ? 'ok' : 'error',
       queuePaused: queuePaused ?? false,
       workers: 0, // worker count not tracked in API process
       ram: memory.rss,

@@ -12,9 +12,9 @@ const numberFromEnv = (value: string | undefined, fallback: number): number => {
 };
 
 export const env: EnvConfig = {
-  redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   pgUrl: process.env.DATABASE_URL,
-  queueName: process.env.BULLMQ_QUEUE || "ai-jobs",
+  queueName: process.env.BULLMQ_QUEUE || 'ai-jobs',
   internalApiKey: process.env.INTERNAL_API_KEY,
   port: numberFromEnv(process.env.PORT, 4000),
 };

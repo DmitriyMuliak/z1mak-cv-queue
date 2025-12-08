@@ -1,10 +1,10 @@
-import fp from "fastify-plugin";
-import { Queue } from "bullmq";
-import { createRedisClient, RedisWithScripts } from "../redis/client";
-import { env } from "../config/env";
-import { FastifyInstance } from "fastify";
+import fp from 'fastify-plugin';
+import { Queue } from 'bullmq';
+import { createRedisClient, RedisWithScripts } from '../redis/client';
+import { env } from '../config/env';
+import { FastifyInstance } from 'fastify';
 
-declare module "fastify" {
+declare module 'fastify' {
   interface FastifyInstance {
     redis: RedisWithScripts;
     queue: Queue;
@@ -17,10 +17,10 @@ export default fp(async (fastify: FastifyInstance) => {
     connection: { url: env.redisUrl },
   });
 
-  fastify.decorate("redis", redis);
-  fastify.decorate("queue", queue);
+  fastify.decorate('redis', redis);
+  fastify.decorate('queue', queue);
 
-  fastify.addHook("onClose", async () => {
+  fastify.addHook('onClose', async () => {
     await queue.close();
     await redis.quit();
   });

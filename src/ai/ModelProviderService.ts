@@ -1,5 +1,5 @@
-import type { Mode } from "../../types/mode";
-import { GeminiProvider } from "./providers/GeminiProvider";
+import type { Mode } from '../../types/mode';
+import { GeminiProvider } from './providers/GeminiProvider';
 
 export interface ModelJobPayload {
   model: string;
@@ -46,7 +46,7 @@ export class ModelProviderService {
       }
     }
 
-    const retryableError = new Error("All fallback models failed");
+    const retryableError = new Error('All fallback models failed');
     (retryableError as any).status = this.extractStatus(lastError) ?? 500;
     (retryableError as any).retryable = true;
     throw retryableError;
@@ -68,17 +68,16 @@ export class ModelProviderService {
 
   private isRetryableError(error: unknown): boolean {
     const status = this.extractStatus(error);
-    return status === 429 || (typeof status === "number" && status >= 500);
+    return status === 429 || (typeof status === 'number' && status >= 500);
   }
 
   private extractStatus(error: unknown): number | undefined {
     if (!error) return undefined;
     const maybeObj = error as any;
-    if (typeof maybeObj.status === "number") return maybeObj.status;
-    if (typeof maybeObj.code === "number") return maybeObj.code;
-    if (typeof maybeObj?.error?.code === "number") return maybeObj.error.code;
-    if (typeof maybeObj?.response?.status === "number")
-      return maybeObj.response.status;
+    if (typeof maybeObj.status === 'number') return maybeObj.status;
+    if (typeof maybeObj.code === 'number') return maybeObj.code;
+    if (typeof maybeObj?.error?.code === 'number') return maybeObj.error.code;
+    if (typeof maybeObj?.response?.status === 'number') return maybeObj.response.status;
     return undefined;
   }
 }

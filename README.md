@@ -161,7 +161,7 @@ return 1
 ```ts
 {
   userId: string;
-  role: "user" | "admin";
+  role: 'user' | 'admin';
   model: string;
   payload: object;
 }
@@ -218,7 +218,7 @@ try {
   const result = await callModel(payload);
 
   await redis.hset(`job:${id}:result`, {
-    status: "completed",
+    status: 'completed',
     data: JSON.stringify(result),
     finished_at: nowUTC(),
   });
@@ -231,7 +231,7 @@ try {
   }
 
   await redis.hset(`job:${id}:result`, {
-    status: "failed",
+    status: 'failed',
     error: err.message,
     finished_at: nowUTC(),
   });
@@ -316,8 +316,8 @@ async function shutdown() {
   await redis.quit();
   process.exit(0);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 ```
 
 ---

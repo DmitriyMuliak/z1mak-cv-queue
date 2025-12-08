@@ -1,8 +1,8 @@
-import { Worker, QueueEvents, JobsOptions } from "bullmq";
-import { redisKeys } from "./redis/keys";
-import { env } from "./config/env";
-import { createRedisClient } from "./redis/client";
-import { ModelProviderService } from "./ai/ModelProviderService";
+import { Worker, QueueEvents, JobsOptions } from 'bullmq';
+import { redisKeys } from './redis/keys';
+import { env } from './config/env';
+import { createRedisClient } from './redis/client';
+import { ModelProviderService } from './ai/ModelProviderService';
 
 const redis = createRedisClient();
 const modelProvider = new ModelProviderService();
@@ -21,7 +21,7 @@ const worker = new Worker(
     const jobId = job.id as string;
 
     await redis.hset(redisKeys.jobMeta(jobId), {
-      status: "in_progress",
+      status: 'in_progress',
       updated_at: new Date().toISOString(),
     });
 
@@ -40,7 +40,7 @@ const worker = new Worker(
       });
 
       await redis.hset(redisKeys.jobResult(jobId), {
-        status: "completed",
+        status: 'completed',
         data: result.text,
         finished_at: new Date().toISOString(),
         used_model: result.usedModel,
@@ -59,8 +59,8 @@ const worker = new Worker(
       }
 
       await redis.hset(redisKeys.jobResult(jobId), {
-        status: "failed",
-        error: err?.message || "Unknown error",
+        status: 'failed',
+        error: err?.message || 'Unknown error',
         finished_at: new Date().toISOString(),
       });
       await removeLock(userId, jobId);
@@ -73,9 +73,9 @@ const queueEvents = new QueueEvents(env.queueName, {
   connection: { url: env.redisUrl },
 });
 
-queueEvents.on("failed", async ({ jobId, failedReason }) => {
+queueEvents.on('failed', async ({ jobId, failedReason }) => {
   await redis.hset(redisKeys.jobResult(jobId as string), {
-    status: "failed",
+    status: 'failed',
     error: failedReason,
     finished_at: new Date().toISOString(),
   });
@@ -92,5 +92,5 @@ const shutdown = async () => {
   process.exit(0);
 };
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

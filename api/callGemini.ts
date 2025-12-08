@@ -1,15 +1,15 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { SchemaService } from "../src/ai/schema/SchemaService";
-import { Mode } from "../types/mode";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
+import { SchemaService } from '../src/ai/schema/SchemaService';
+import { Mode } from '../types/mode';
 
 // https://ai.google.dev/gemini-api/docs/models
 // Rate Limits - https://ai.google.dev/gemini-api/docs/rate-limits?authuser=3
 const geminiModels = {
-  pro3: "gemini-3-pro-preview",
-  pro2dot5: "gemini-2.5-pro",
-  flash: "gemini-2.5-flash",
-  flashPreview: "gemini-2.5-flash-preview-09-2025",
-  flashLite: "gemini-2.5-flash-lite",
+  pro3: 'gemini-3-pro-preview',
+  pro2dot5: 'gemini-2.5-pro',
+  flash: 'gemini-2.5-flash',
+  flashPreview: 'gemini-2.5-flash-preview-09-2025',
+  flashLite: 'gemini-2.5-flash-lite',
 };
 
 const client = new GoogleGenAI({
@@ -47,24 +47,24 @@ export const callGeminiAi = async ({
       model: geminiModels.flashLite,
       contents: [
         {
-          role: "user",
+          role: 'user',
           parts: [{ text: promptSettings.prompt }],
         },
       ],
       config: {
         systemInstruction: promptSettings.systemInstructions,
         temperature: 0, // Deterministic for data extraction
-        responseMimeType: "application/json",
+        responseMimeType: 'application/json',
         responseSchema: responseSchema,
         safetySettings,
       },
     });
 
-    console.log("GEMINI result", result);
+    console.log('GEMINI result', result);
 
     return result.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error('Gemini API Error:', error);
     throw error;
   }
 };
@@ -86,7 +86,7 @@ const buildPromptSettings = ({
   options,
 }: BuildPromptSettingsParams) => {
   const { mode } = options;
-  const isByJob = mode.evaluationMode === "byJob";
+  const isByJob = mode.evaluationMode === 'byJob';
 
   let inputDataBlock = `<CV_TEXT>\n${cvDescription}\n</CV_TEXT>`;
 
@@ -115,26 +115,26 @@ const buildPromptSettings = ({
 const getTaskContext = (mode: Mode) => {
   const { evaluationMode, domain } = mode;
 
-  if (evaluationMode === "byJob") {
-    return domain === "it"
-      ? "Conduct a technical comparative analysis of an IT candidate against a vacancy."
-      : "Conduct a professional comparative analysis of a candidate against a job description.";
+  if (evaluationMode === 'byJob') {
+    return domain === 'it'
+      ? 'Conduct a technical comparative analysis of an IT candidate against a vacancy.'
+      : 'Conduct a professional comparative analysis of a candidate against a job description.';
   }
 
   // General mode
-  return domain === "it"
-    ? "Conduct a comprehensive technical audit of an IT resume based on global market standards (FAANG/Big Tech)."
-    : "Conduct a general professional review of a resume to identify strengths, weaknesses, and structure improvements.";
+  return domain === 'it'
+    ? 'Conduct a comprehensive technical audit of an IT resume based on global market standards (FAANG/Big Tech).'
+    : 'Conduct a general professional review of a resume to identify strengths, weaknesses, and structure improvements.';
 };
 
 const getSystemInstructions = (mode: Mode) => {
   const { evaluationMode, domain } = mode;
 
   // --- IT DOMAIN ---
-  if (domain === "it") {
+  if (domain === 'it') {
     const basePersona = `You are an elite AI Talent Analyst and Technical Recruiter with 20 years of experience in the IT industry (FAANG level).`;
 
-    if (evaluationMode === "byJob") {
+    if (evaluationMode === 'byJob') {
       return `
         ${basePersona}
         Your task is to conduct a deep and ruthlessly honest analysis of the provided CV against the Job Description.
@@ -163,7 +163,7 @@ const getSystemInstructions = (mode: Mode) => {
   // --- COMMON DOMAIN ---
   const basePersona = `You are a Senior HR Business Partner and Career Coach with extensive experience in hiring for various industries.`;
 
-  if (evaluationMode === "byJob") {
+  if (evaluationMode === 'byJob') {
     return `
       ${basePersona}
       Your task is to determine if the candidate is a good fit for the specific role described.
@@ -196,9 +196,7 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   const langName = getLanguageName(locale);
 
   // 1. Common Basics
-  builder.add(
-    `Adhere to the rules and persona described in the system prompt.`
-  );
+  builder.add(`Adhere to the rules and persona described in the system prompt.`);
   builder.add(`Analyze the input data and populate the output JSON structure.`);
   builder.add(
     `Write the answer in ${langName} language, but DO NOT translate specific domain terminology (keep tech stack/role names in English).`
@@ -208,19 +206,17 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   );
 
   // 2. Mode Specifics
-  if (evaluationMode === "byJob") {
+  if (evaluationMode === 'byJob') {
     builder.add(
       `Read <CV_TEXT> and identify all matches and gaps compared to <JOB_DESCRIPTION>.`
     );
 
-    if (domain === "it") {
+    if (domain === 'it') {
       builder.add(
         `Verify if the candidate knows the specific versions or ecosystem tools mentioned in the vacancy.`
       );
     } else {
-      builder.add(
-        `Focus on experience relevance and soft skills requirements.`
-      );
+      builder.add(`Focus on experience relevance and soft skills requirements.`);
     }
 
     builder.add(
@@ -233,14 +229,12 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
       `Evaluate the candidate based on the implied role title found in the CV header.`
     );
 
-    builder.add(
-      `Focus on "Actionable Improvement Plan" to make this CV market-ready.`
-    );
+    builder.add(`Focus on "Actionable Improvement Plan" to make this CV market-ready.`);
   }
 
   // 3. Depth Specifics (Schema Sync)
-  const isDeep = depth === "deep";
-  const isHardMode = evaluationMode === "byJob" && isDeep;
+  const isDeep = depth === 'deep';
+  const isHardMode = evaluationMode === 'byJob' && isDeep;
 
   if (isHardMode) {
     builder.add(
@@ -251,9 +245,7 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
       `Generate "suggestedInterviewQuestions" to probe the identified weak spots.`
     );
   } else {
-    builder.add(
-      `Provide a high-level summary without deep granular skill breakdown.`
-    );
+    builder.add(`Provide a high-level summary without deep granular skill breakdown.`);
   }
 
   // 4. Final Reminders
@@ -262,11 +254,10 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
     `PAY ATTENTION TO FIELD DESCRIPTIONS: If "be honest" is specified — do not sugarcoat. If a number is required, provide 0 if not found.`
   );
 
-  return builder.getList().join("\n");
+  return builder.getList().join('\n');
 };
 
-const getLanguageName = (locale: string) =>
-  locale === "uk" ? "Ukrainian" : "English";
+const getLanguageName = (locale: string) => (locale === 'uk' ? 'Ukrainian' : 'English');
 
 const safetySettings = [
   {

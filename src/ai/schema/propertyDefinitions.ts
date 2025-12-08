@@ -64,7 +64,8 @@ export const PROPERTY_DEFINITIONS = {
     },
     requiredYearsInJob: {
       type: Type.NUMBER,
-      description: 'Number. How many years of experience the vacancy requires (0 if not specified)',
+      description:
+        'Number. How many years of experience the vacancy requires (0 if not specified)',
     },
     keySkillCoveragePercent: {
       type: Type.NUMBER,

@@ -1,7 +1,7 @@
-import { produce } from "immer";
-import { Schema, Type } from "@google/genai";
-import { PROPERTY_DEFINITIONS, amountPlaceholder } from "./propertyDefinitions";
-import type { Mode } from "../../../types/mode";
+import { produce } from 'immer';
+import { Schema, Type } from '@google/genai';
+import { PROPERTY_DEFINITIONS, amountPlaceholder } from './propertyDefinitions';
+import type { Mode } from '../../../types/mode';
 
 export class SchemaService {
   private mode: Mode;
@@ -11,15 +11,15 @@ export class SchemaService {
   }
 
   private get isCommonDomain() {
-    return this.mode.domain === "common";
+    return this.mode.domain === 'common';
   }
 
   private get isByJob() {
-    return this.mode.evaluationMode === "byJob";
+    return this.mode.evaluationMode === 'byJob';
   }
 
   private get isDeep() {
-    return this.mode.depth === "deep";
+    return this.mode.depth === 'deep';
   }
 
   private get isHardMode() {
@@ -45,14 +45,12 @@ export class SchemaService {
   private buildOverallAnalysis(): Schema {
     const props: Record<string, Schema> = {
       candidateLevel: PROPERTY_DEFINITIONS.overallAnalysis.candidateLevel,
-      suitabilitySummary:
-        PROPERTY_DEFINITIONS.overallAnalysis.suitabilitySummary,
+      suitabilitySummary: PROPERTY_DEFINITIONS.overallAnalysis.suitabilitySummary,
     };
     const required = Object.keys(props);
 
     if (this.isCommonDomain) {
-      props.independentCvScore =
-        PROPERTY_DEFINITIONS.overallAnalysis.independentCvScore;
+      props.independentCvScore = PROPERTY_DEFINITIONS.overallAnalysis.independentCvScore;
     } else {
       props.independentTechCvScore =
         PROPERTY_DEFINITIONS.overallAnalysis.independentTechCvScore;
@@ -60,23 +58,19 @@ export class SchemaService {
 
     if (this.isByJob) {
       props.matchScore = PROPERTY_DEFINITIONS.overallAnalysis.matchScore;
-      props.jobTargetLevel =
-        PROPERTY_DEFINITIONS.overallAnalysis.jobTargetLevel;
+      props.jobTargetLevel = PROPERTY_DEFINITIONS.overallAnalysis.jobTargetLevel;
       props.levelMatch = PROPERTY_DEFINITIONS.overallAnalysis.levelMatch;
-      required.push("jobTargetLevel", "levelMatch");
+      required.push('jobTargetLevel', 'levelMatch');
 
       if (this.isDeep) {
-        props.educationMatch =
-          PROPERTY_DEFINITIONS.overallAnalysis.educationMatch;
-        props.jobHoppingFlag =
-          PROPERTY_DEFINITIONS.overallAnalysis.jobHoppingFlag;
-        required.push("educationMatch", "jobHoppingFlag");
+        props.educationMatch = PROPERTY_DEFINITIONS.overallAnalysis.educationMatch;
+        props.jobHoppingFlag = PROPERTY_DEFINITIONS.overallAnalysis.jobHoppingFlag;
+        required.push('educationMatch', 'jobHoppingFlag');
       }
     } else {
       // General mode logic
-      props.jobHoppingFlag =
-        PROPERTY_DEFINITIONS.overallAnalysis.jobHoppingFlag;
-      required.push("jobHoppingFlag");
+      props.jobHoppingFlag = PROPERTY_DEFINITIONS.overallAnalysis.jobHoppingFlag;
+      required.push('jobHoppingFlag');
     }
 
     return { type: Type.OBJECT, properties: props, required };
@@ -95,15 +89,14 @@ export class SchemaService {
         PROPERTY_DEFINITIONS.quantitativeMetrics.keySkillCoveragePercent;
       props.requiredYearsInJob =
         PROPERTY_DEFINITIONS.quantitativeMetrics.requiredYearsInJob;
-      required.push("requiredYearsInJob");
+      required.push('requiredYearsInJob');
     }
 
     if (this.isDeep) {
       props.stackRecencyScore =
         PROPERTY_DEFINITIONS.quantitativeMetrics.stackRecencyScore;
-      props.softSkillsScore =
-        PROPERTY_DEFINITIONS.quantitativeMetrics.softSkillsScore;
-      required.push("stackRecencyScore", "softSkillsScore");
+      props.softSkillsScore = PROPERTY_DEFINITIONS.quantitativeMetrics.softSkillsScore;
+      required.push('stackRecencyScore', 'softSkillsScore');
     }
 
     return { type: Type.OBJECT, properties: props, required };
@@ -112,8 +105,7 @@ export class SchemaService {
   private buildImprovementPlan(): Schema {
     const props: Record<string, Schema> = {
       title: { type: Type.STRING },
-      summaryRewrite: PROPERTY_DEFINITIONS.improvementComponents
-        .summaryRewrite as Schema,
+      summaryRewrite: PROPERTY_DEFINITIONS.improvementComponents.summaryRewrite as Schema,
       quantifyAchievements: PROPERTY_DEFINITIONS.improvementComponents
         .quantifyAchievements as Schema,
       removeIrrelevant: PROPERTY_DEFINITIONS.improvementComponents
@@ -124,7 +116,7 @@ export class SchemaService {
     if (this.isByJob) {
       props.keywordOptimization = PROPERTY_DEFINITIONS.improvementComponents
         .keywordOptimization as Schema;
-      required.push("keywordOptimization");
+      required.push('keywordOptimization');
     }
 
     return { type: Type.OBJECT, properties: props, required };
@@ -134,7 +126,7 @@ export class SchemaService {
     const properties: Record<string, Schema> = {
       analysisTimestamp: {
         type: Type.STRING,
-        description: "Current ISO date and time",
+        description: 'Current ISO date and time',
       },
       overallAnalysis: this.buildOverallAnalysis(),
       quantitativeMetrics: this.buildQuantitativeMetrics(),
@@ -151,9 +143,9 @@ export class SchemaService {
       const updatedDefinitions = produce(PROPERTY_DEFINITIONS, (draft) => {
         const skills = draft.detailedSkillAnalysis.properties.skills;
         if (this.isDeep) {
-          skills.maxItems = skills.maxItems.replace(amountPlaceholder, "7");
+          skills.maxItems = skills.maxItems.replace(amountPlaceholder, '7');
         } else {
-          skills.maxItems = skills.maxItems.replace(amountPlaceholder, "4");
+          skills.maxItems = skills.maxItems.replace(amountPlaceholder, '4');
         }
       });
       properties.detailedSkillAnalysis =
@@ -169,9 +161,9 @@ export class SchemaService {
       const updatedDefinitions = produce(PROPERTY_DEFINITIONS, (draft) => {
         const jobsProp = draft.experienceRelevanceAnalysis.properties.jobs;
         if (this.isDeep) {
-          jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, "5");
+          jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, '5');
         } else {
-          jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, "3");
+          jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, '3');
         }
       });
       properties.experienceRelevanceAnalysis =
@@ -187,9 +179,9 @@ export class SchemaService {
 }
 
 export type UiSectionKey =
-  | "header"
-  | "skills"
-  | "experience"
-  | "redFlags"
-  | "improvements"
-  | "questions";
+  | 'header'
+  | 'skills'
+  | 'experience'
+  | 'redFlags'
+  | 'improvements'
+  | 'questions';
