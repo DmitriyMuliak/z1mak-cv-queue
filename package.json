@@ -10,6 +10,7 @@
     "start:api": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "start:cron": "node dist/cron.js",
+    "docker:up": "docker compose up --build",
     "lint": "ESLINT_USE_FLAT_CONFIG=0 eslint \"{src,api,types}/**/*.ts\"",
     "format": "prettier --check \"**/*.{ts,js,json,md}\"",
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",

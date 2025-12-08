@@ -154,8 +154,8 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     return { jobId };
   });
 
-  fastify.get('/job/:jobId', async (request, reply) => {
-    const jobId = (request.params as any).jobId as string;
+  fastify.get<{ Params: { jobId: string } }>('/job/:jobId', async (request, reply) => {
+    const jobId = request.params.jobId as string;
     if (!jobId) {
       return reply.status(400).send({ ok: false, error: 'INVALID_JOB_ID' });
     }

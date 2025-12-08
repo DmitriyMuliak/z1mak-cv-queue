@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    command: ["node", "dist/server.js"]
+    environment:
+      PORT: "4000"
+      REDIS_URL: "redis://redis:6379"
+      BULLMQ_QUEUE: "ai-jobs"
+    ports:
+      - "4000:4000"
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    command: ["node", "dist/worker.js"]
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      BULLMQ_QUEUE: "ai-jobs"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"

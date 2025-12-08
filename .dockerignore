@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+node_modules
+dist
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+.env
+.DS_Store
+coverage
