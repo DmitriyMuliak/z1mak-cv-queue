@@ -1,5 +1,5 @@
 import type { Mode } from '../../types/mode';
-import { GeminiProvider } from './providers/GeminiProvider';
+import { GeminiProvider } from './providers/gemini/GeminiProvider';
 
 export interface ModelJobPayload {
   model: string; // Модель, для якої списано токени
@@ -15,9 +15,9 @@ export interface ModelJobResult {
 }
 
 export class ModelProviderService {
-  private geminiProvider: GeminiProvider;
+  private geminiProvider: { generate: GeminiProvider['generate'] };
 
-  constructor(geminiProvider = new GeminiProvider()) {
+  constructor(geminiProvider: { generate: GeminiProvider['generate'] } = new GeminiProvider()) {
     this.geminiProvider = geminiProvider;
   }
 
