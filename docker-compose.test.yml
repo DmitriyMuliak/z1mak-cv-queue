@@ -10,22 +10,31 @@ services:
       BULLMQ_QUEUE: "ai-jobs"
       GEMINI_API_KEY: "dummy"
       INTERNAL_API_KEY: "internal-secret"
+      GEMINI_BASE_URL: "http://mock-gemini:8080"
     ports:
       - "4000:4000"
     depends_on:
       - redis
+      - mock-gemini
 
   worker:
     build: .
-    command: ["node", "dist/src/worker.js"]
+    command: ["node", "-r", "./dist/src/mock/registerGeminiMock.js", "dist/src/worker.js"]
     environment:
       REDIS_URL: "redis://redis:6379"
       BULLMQ_QUEUE: "ai-jobs"
       GEMINI_API_KEY: "dummy"
       INTERNAL_API_KEY: "internal-secret"
-      MOCK_GEMINI_PROVIDER: "success"
+      GEMINI_MOCK_URL: "http://mock-gemini:8080"
     depends_on:
       - redis
+      - mock-gemini
+
+  mock-gemini:
+    build: .
+    command: ["node", "dist/src/mock/geminiServer.js"]
+    ports:
+      - "8080:8080"
 
   redis:
     image: redis:7-alpine

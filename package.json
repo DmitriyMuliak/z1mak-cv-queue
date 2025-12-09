@@ -10,12 +10,13 @@
     "start:api": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "start:cron": "node dist/cron.js",
+    "start:worker:mock": "node -r ./dist/src/mock/registerGeminiMock.js dist/src/worker.js",
     "docker:up": "docker compose up --build",
     "lint": "ESLINT_USE_FLAT_CONFIG=0 eslint \"{src,api,types}/**/*.ts\"",
     "format": "prettier --check \"**/*.{ts,js,json,md}\"",
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",
     "fix": "npm run lint -- --fix && npm run format:write",
-    "test": "echo \"No tests yet\""
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -36,13 +37,15 @@
     "@types/luxon": "^3.7.1",
     "@types/node": "^22.9.0",
     "@types/pg": "^8.11.10",
+    "@eslint/eslintrc": "^3.1.0",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
-    "@eslint/eslintrc": "^3.1.0",
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^1.6.0"
   }
 }

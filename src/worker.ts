@@ -2,7 +2,7 @@ import { Worker, QueueEvents, Queue } from 'bullmq';
 import { redisKeys } from './redis/keys';
 import { env } from './config/env';
 import { createRedisClient } from './redis/client';
-import { ModelProviderService } from './ai/ModelProviderService';
+import { ModelProviderService } from './ai/ModelProviderService'; 
 import { getSecondsUntilMidnightPT, getCurrentDatePT } from './utils/time';
 
 const redis = createRedisClient();

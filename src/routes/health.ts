@@ -8,17 +8,34 @@ export default async function healthRoutes(fastify: FastifyInstance) {
       .then(() => true)
       .catch(() => false);
 
-    const queuePaused = await fastify.queue.isPaused();
+    let queueReady = false;
+    let queuePaused = false;
+    let queueError: string | null = null;
+    try {
+      await fastify.queue.waitUntilReady();
+      queueReady = true;
+      queuePaused = (await fastify.queue.isPaused()) ?? false;
+    } catch (err) {
+      queueError = (err as Error)?.message ?? 'queue_not_ready';
+    }
 
     const memory = process.memoryUsage();
 
-    return {
+    const payload = {
       redis: redisOk ? 'ok' : 'error',
+      queueReady,
       queuePaused: queuePaused ?? false,
+      queueError,
       workers: 0, // worker count not tracked in API process
       ram: memory.rss,
       cpu: os.loadavg()[0],
       uptime: process.uptime() * 1000,
     };
+
+    if (!queueReady) {
+      return { statusCode: 503, ...payload };
+    }
+
+    return payload;
   });
 }

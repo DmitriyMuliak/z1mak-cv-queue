@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/**/*", "api/**/*", "types/**/*"],
+  "include": ["src/**/*", "api/**/*", "types/**/*", "test/**/*"],
   "exclude": ["node_modules", "dist"]
 }
