@@ -1,135 +1,252 @@
-import { Worker, QueueEvents, Queue } from 'bullmq';
+import { Worker, QueueEvents, Queue, Job } from 'bullmq';
 import { redisKeys } from './redis/keys';
 import { env } from './config/env';
 import { createRedisClient } from './redis/client';
-import { ModelProviderService } from './ai/ModelProviderService'; 
+import { ModelProviderService } from './ai/ModelProviderService';
 import { getSecondsUntilMidnightPT, getCurrentDatePT } from './utils/time';
+import { getCachedUserLimits } from './services/limitsCache';
+import type { Mode } from '../types/mode';
+
+type ModeType = 'hard' | 'lite';
+
+interface JobPayload {
+  jobId: string;
+  userId: string;
+  requestedModel: string;
+  model: string;
+  payload: {
+    cvDescription: string;
+    jobDescription?: string;
+    mode: Mode;
+    locale: string;
+  };
+  role: 'user' | 'admin';
+  modeType: ModeType;
+}
+
+enum ConsumeCode {
+  OK = 1,
+  ModelRpmExceeded = -1,
+  ModelRpdExceeded = -2,
+  UserRpdExceeded = -3,
+}
 
 const redis = createRedisClient();
 const modelProvider = new ModelProviderService();
-const queue = new Queue(env.queueName, { connection: { url: env.redisUrl } });
 
 const MINUTE_TTL = 70;
+
+const queues = {
+  lite: new Queue(env.queueLiteName, { connection: { url: env.redisUrl } }),
+  hard: new Queue(env.queueHardName, { connection: { url: env.redisUrl } }),
+};
+
+const queueEvents = {
+  lite: new QueueEvents(env.queueLiteName, { connection: { url: env.redisUrl } }),
+  hard: new QueueEvents(env.queueHardName, { connection: { url: env.redisUrl } }),
+};
 
 const removeLock = async (userId: string, jobId: string) => {
   await redis.zrem(redisKeys.userActiveJobs(userId), jobId);
 };
 
-const returnTokens = async (userId: string, model: string) => {
+const releaseWaitingCounter = async (model: string) => {
+  const key = redisKeys.queueWaitingModel(model);
+  const current = await redis.decr(key);
+  if (current && current < 0) {
+    await redis.set(key, 0);
+  }
+};
+
+const returnTokens = async (userId: string, model: string, modeType: ModeType) => {
   const dayTtl = getSecondsUntilMidnightPT();
   const todayPT = getCurrentDatePT();
-
   const pipeline = redis.pipeline();
 
-  // Model RPM
   pipeline.decrby(redisKeys.modelRpm(model), 1);
   pipeline.expire(redisKeys.modelRpm(model), MINUTE_TTL);
 
-  // Model RPD
   pipeline.decrby(redisKeys.modelRpd(model), 1);
   pipeline.expire(redisKeys.modelRpd(model), dayTtl);
-
-  // User RPM
-  pipeline.decrby(redisKeys.userModelRpm(userId, model), 1);
-  pipeline.expire(redisKeys.userModelRpm(userId, model), MINUTE_TTL);
-
-  // User RPD (Fixed Window)
-  pipeline.decrby(redisKeys.userModelRpd(userId, model, todayPT), 1);
 
   await pipeline.exec();
 };
 
-const worker = new Worker(
-  env.queueName,
-  async (job) => {
-    const {
-      userId,
-      model, // 💡 Це модель, за яку списано токени
-      payload,
-    } = job.data as any;
-    const jobId = job.id as string;
+const consumeModelLimits = async (
+  model: string,
+  userId: string,
+  modeType: ModeType,
+  limits: { modelRpm: number; modelRpd: number; userRpd: number }
+): Promise<number> => {
+  const dayTtl = getSecondsUntilMidnightPT();
+  const userDayTtl = dayTtl;
+  return redis.consumeExecutionLimits(
+    [
+      redisKeys.modelRpm(model),
+      redisKeys.modelRpd(model),
+      redisKeys.userTypeRpd(userId, modeType, getCurrentDatePT()),
+    ],
+    [limits.modelRpm, limits.modelRpd, limits.userRpd, MINUTE_TTL, dayTtl, userDayTtl, 1]
+  );
+};
 
-    await redis.hset(redisKeys.jobMeta(jobId), {
-      status: 'in_progress',
-      updated_at: new Date().toISOString(),
+const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
+  const { userId, model, payload, role } = job.data;
+  const jobId = job.id as string;
+  const now = new Date().toISOString();
+  const prefix = `[worker:${queueType}] job:${jobId} model:${model} user:${userId}`;
+
+  console.log(`${prefix} start`);
+
+  await redis.hset(redisKeys.jobMeta(jobId), {
+    status: 'in_progress',
+    updated_at: now,
+  });
+
+  try {
+    const limits = await getCachedUserLimits(redis, userId, role);
+
+    const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
+    const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
+    const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
+
+    const consumeCode = await consumeModelLimits(model, userId, queueType, {
+      modelRpm: modelRpmLimit,
+      modelRpd: modelRpdLimit,
+      userRpd: 0, // user RPD спожито в API
     });
 
-    try {
-      const result = await modelProvider.execute({
-        model,
-        cvDescription: payload.cvDescription,
-        jobDescription: payload.jobDescription,
-        mode: payload.mode,
-        locale: payload.locale,
-      });
+    console.log(`${prefix} consumeCode=${consumeCode}`);
 
-      await redis.hset(redisKeys.jobMeta(jobId), {
-        processed_model: result.usedModel,
-      });
-
-      await redis.hset(redisKeys.jobResult(jobId), {
-        status: 'completed',
-        data: result.text,
-        finished_at: new Date().toISOString(),
-        used_model: result.usedModel,
-      });
-
-      await removeLock(userId, jobId);
-    } catch (err: any & { retryable?: boolean }) {
-      if (!err?.retryable) {
-        await redis.hset(redisKeys.jobResult(jobId), {
-          status: 'failed',
-          error: err?.message || 'Unknown error',
-          finished_at: new Date().toISOString(),
-        });
-        await removeLock(userId, jobId);
-      }
-
-      // Throw error to BullMQ, for manage retry / final failed
-      throw err;
+    if (consumeCode === ConsumeCode.ModelRpmExceeded) {
+      const ttl = await redis.ttl(redisKeys.modelRpm(model));
+      const delayMs = Math.max(ttl, 1) * 1000;
+      await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
+      await job.moveToDelayed(Date.now() + delayMs);
+      console.log(`${prefix} rpm exceeded, delayMs=${delayMs}`);
+      return;
     }
-  },
-  { connection: { url: env.redisUrl } }
-);
 
-const queueEvents = new QueueEvents(env.queueName, {
-  connection: { url: env.redisUrl },
-});
+    if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
+      const reason =
+        consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
+      await redis.hset(redisKeys.jobResult(jobId), {
+        status: 'failed',
+        error: reason,
+        error_code: consumeCode === ConsumeCode.ModelRpdExceeded ? 'limit' : 'expired',
+        finished_at: new Date().toISOString(),
+      });
+      await removeLock(userId, jobId);
+      await releaseWaitingCounter(model);
+      console.log(`${prefix} failed early reason=${reason}`);
+      return;
+    }
 
-queueEvents.on('failed', async ({ jobId, failedReason }) => {
-  const job = await queue.getJob(jobId as string);
-  const attemptsMade = job?.attemptsMade ?? 0;
-  const maxAttempts = job?.opts.attempts ?? 1;
-  const isFinalAttempt = job ? attemptsMade >= maxAttempts : true;
+    await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
 
-  if (!isFinalAttempt) {
-    return;
+    const result = await modelProvider.execute({
+      model,
+      cvDescription: payload.cvDescription,
+      jobDescription: payload.jobDescription,
+      mode: payload.mode,
+      locale: payload.locale,
+    });
+
+    await redis.hset(redisKeys.jobMeta(jobId), {
+      processed_model: result.usedModel,
+    });
+
+    await redis.hset(redisKeys.jobResult(jobId), {
+      status: 'completed',
+      data: result.text,
+      finished_at: new Date().toISOString(),
+      used_model: result.usedModel,
+    });
+
+    await removeLock(userId, jobId);
+    await releaseWaitingCounter(model);
+    console.log(`${prefix} completed`);
+  } catch (err: any & { retryable?: boolean }) {
+    console.error(`${prefix} error`, err?.message || err);
+    // Якщо помилка не ретраїбл або 5xx (не ретраїмо за домовленістю) — фіксуємо як failed
+    if (!err?.retryable) {
+      await redis.hset(redisKeys.jobResult(jobId), {
+        status: 'failed',
+        error: err?.message || 'Unknown error',
+        error_code: 'provider_error',
+        finished_at: new Date().toISOString(),
+      });
+      await removeLock(userId, jobId);
+      await releaseWaitingCounter(model);
+      return;
+    }
+
+    // retryable — нехай BullMQ робить retry
+    throw err;
   }
+};
 
-  const meta = await redis.hgetall(redisKeys.jobMeta(jobId as string));
+const createWorker = (queueName: string, queueType: ModeType) =>
+  new Worker(
+    queueName,
+    async (job) => {
+      await handleJob(queueType, job);
+    },
+    {
+      connection: { url: env.redisUrl },
+      concurrency: queueType === 'hard' ? 3 : 8,
+    }
+  );
 
-  const userId = meta.user_id;
-  const model = meta.processed_model || meta.requested_model;
+const workers = {
+  lite: createWorker(env.queueLiteName, 'lite'),
+  hard: createWorker(env.queueHardName, 'hard'),
+};
 
-  if (userId && model) {
-    await returnTokens(userId, model);
-  }
+const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
+  queueEvent.on('failed', async ({ jobId, failedReason }) => {
+    const queue = queues[queueType];
+    const job = await queue.getJob(jobId as string);
+    const attemptsMade = job?.attemptsMade ?? 0;
+    const maxAttempts = job?.opts.attempts ?? 1;
+    const isFinalAttempt = job ? attemptsMade >= maxAttempts : true;
 
-  if (userId) {
-    await removeLock(userId, jobId as string);
-  }
+    if (!isFinalAttempt) {
+      return;
+    }
 
-  await redis.hset(redisKeys.jobResult(jobId as string), {
-    status: 'failed',
-    error: failedReason,
-    finished_at: new Date().toISOString(),
+    const meta = await redis.hgetall(redisKeys.jobMeta(jobId as string));
+
+    const userId = meta.user_id;
+    const model = meta.processed_model || meta.requested_model;
+    const modeTypeMeta = meta.mode_type === 'hard' ? 'hard' : 'lite';
+
+    if (userId && model && meta.tokens_consumed === 'true') {
+      await returnTokens(userId, model, modeTypeMeta);
+    }
+
+    if (userId) {
+      await removeLock(userId, jobId as string);
+    }
+
+    await releaseWaitingCounter(model);
+
+    await redis.hset(redisKeys.jobResult(jobId as string), {
+      status: 'failed',
+      error: failedReason,
+      error_code: 'provider_error',
+      finished_at: new Date().toISOString(),
+    });
   });
-});
+};
+
+registerQueueEvents(queueEvents.lite, 'lite');
+registerQueueEvents(queueEvents.hard, 'hard');
 
 const shutdown = async () => {
-  await worker.close();
-  await queueEvents.close();
-  await queue.close();
+  await Promise.all([workers.lite.close(), workers.hard.close()]);
+  await Promise.all([queueEvents.lite.close(), queueEvents.hard.close()]);
+  await Promise.all([queues.lite.close(), queues.hard.close()]);
   await redis.quit();
   process.exit(0);
 };

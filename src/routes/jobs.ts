@@ -17,19 +17,27 @@ interface RunAiJobBody {
   };
 }
 
-const MINUTE_TTL = 70;
+const CONCURRENCY_TTL_SECONDS = 1860; // ~31 хв, щоб слот не пропав до старту
+const MAX_WAIT_MINUTES = 30;
+const QUEUE_BUFFER = 0.9;
+const AVG_SECONDS = { hard: 25, lite: 15 };
 
-export enum LimitCode {
+const isHardMode = (mode: Mode) => mode.evaluationMode === 'byJob' && mode.depth === 'deep';
+
+enum AcquireCode {
   OK = 1,
-  // Concurrency Lock
-  CONCURRENCY_LIMIT_EXCEEDED = -0,
-  // Model Limits
-  MODEL_RPM_EXCEEDED = -1,
-  MODEL_RPD_EXCEEDED = -2,
-  // User Limits
-  USER_RPM_EXCEEDED = -3,
-  USER_RPD_EXCEEDED = -4,
+  ConcurrencyExceeded = 0,
+  UserRpdExceeded = -4,
 }
+
+const computeMaxQueueLength = (rpm: number, rpd: number, avgSeconds: number) => {
+  const rpmSafe = Math.max(rpm, 0);
+  const perMinuteByDuration = avgSeconds > 0 ? 60 / avgSeconds : rpmSafe;
+  const perMinute = Math.min(rpmSafe, perMinuteByDuration);
+  const raw = Math.ceil(perMinute * MAX_WAIT_MINUTES * QUEUE_BUFFER);
+  const dayCap = rpd > 0 ? rpd : raw;
+  return Math.max(1, Math.min(raw, dayCap));
+};
 
 export default async function jobsRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RunAiJobBody }>('/run-ai-job', async (request, reply) => {
@@ -50,13 +58,19 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
 
     const jobId = uuidv4();
     const now = Date.now();
+    const todayPT = getCurrentDatePT();
+    const dayTtl = getSecondsUntilMidnightPT(); // TTL до 00:00 PT
+    const modeType: 'hard' | 'lite' = isHardMode(body.payload.mode) ? 'hard' : 'lite';
 
     const chainFromMode = resolveModelChain(body.payload.mode);
     const requestedModel = chainFromMode.requestedModel;
     const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
 
     let selectedModel: string | null = null;
-    const dayTtl = getSecondsUntilMidnightPT(); // TTL до 00:00 PT
+    let selectedModelRpm = 0;
+    let selectedModelRpd = 0;
+
+    console.log('asdasdasdasdasdsadasdasdas')
 
     for (const candidate of modelChain) {
       const modelLimits = await fastify.redis.hgetall(redisKeys.modelLimits(candidate));
@@ -68,88 +82,88 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
 
       const modelRpm = Number(modelLimits.rpm ?? 0);
       const modelRpd = Number(modelLimits.rpd ?? 0);
-      const userMinuteLimit = 0; // disable user RPM (model limits cover throughput)
-      const userDayLimit = isAdmin ? 0 : (pickRpdLimit(userLimits, candidate) ?? 0);
+      const userDayLimit = isAdmin
+        ? 0
+        : modeType === 'hard'
+          ? userLimits.hard_rpd ?? 0
+          : userLimits.lite_rpd ?? 0;
       const concurrencyLimit = isAdmin ? 0 : (userLimits.max_concurrency ?? 0);
-
-      const todayPT = getCurrentDatePT();
 
       const code = await fastify.redis.combinedCheckAndAcquire(
         [
-          redisKeys.modelRpm(candidate),
-          redisKeys.modelRpd(candidate),
-          redisKeys.userModelRpm(body.userId, candidate),
-          redisKeys.userModelRpd(body.userId, candidate, todayPT),
+          redisKeys.userTypeRpd(body.userId, modeType, todayPT),
           redisKeys.userActiveJobs(body.userId),
         ],
-        [
-          modelRpm,
-          modelRpd,
-          userMinuteLimit,
-          userDayLimit,
-          concurrencyLimit,
-          MINUTE_TTL,
-          dayTtl, // Model RPD
-          1,
-          now,
-          jobId,
-          dayTtl, // User RPD
-        ]
+        [userDayLimit, concurrencyLimit, dayTtl, CONCURRENCY_TTL_SECONDS, 1, now, jobId]
       );
 
-      if (code === LimitCode.OK) {
+      if (code === AcquireCode.OK) {
         selectedModel = candidate;
+        selectedModelRpm = modelRpm;
+        selectedModelRpd = modelRpd;
         break;
       }
-      if (code === LimitCode.CONCURRENCY_LIMIT_EXCEEDED) {
+      if (code === AcquireCode.ConcurrencyExceeded) {
         return reply.status(429).send({ ok: false, error: 'CONCURRENCY_LIMIT' });
       }
-      if (code === LimitCode.USER_RPM_EXCEEDED) {
-        return reply.status(429).send({ ok: false, error: 'USER_RPM_LIMIT' });
-      }
-      if (code === LimitCode.USER_RPD_EXCEEDED) {
+      if (code === AcquireCode.UserRpdExceeded) {
         return reply.status(429).send({ ok: false, error: 'USER_RPD_LIMIT' });
       }
-      // LimitCode.MODEL_RPD_EXCEEDED
-      // LimitCode.MODEL_RPM_EXCEEDED
-      // -1 / -2 => try next fallback
     }
 
     if (!selectedModel) {
       return reply.status(429).send({ ok: false, error: 'MODEL_LIMIT' });
     }
+    
+    const avgSeconds = modeType === 'hard' ? AVG_SECONDS.hard : AVG_SECONDS.lite;
+    const maxQueueLength = computeMaxQueueLength(selectedModelRpm, selectedModelRpd, avgSeconds);
+    
+    const waitingKey = redisKeys.queueWaitingModel(selectedModel);
+    const waitingCount = await fastify.redis.incr(waitingKey);
+    console.log({waitingKey, waitingCount, maxQueueLength })
+    
+    if (waitingCount > maxQueueLength) {
+      await fastify.redis.decr(waitingKey);
+      return reply.status(429).send({
+        ok: false,
+        error: 'QUEUE_FULL',
+        message: `Queue backlog too large for model ${selectedModel}`,
+      });
+    }
 
-    await Promise.all([
-      fastify.queue.add(
-        'ai-job',
-        {
-          jobId,
-          userId: body.userId,
-          requestedModel,
-          model: selectedModel,
-          payload: body.payload,
-          role: body.role,
-        },
-        {
-          jobId,
-          attempts: 3,
-          removeOnComplete: false,
-          removeOnFail: false,
-          backoff: {
-            type: 'fixed',
-            delay: 10000,
+    const targetQueue = modeType === 'hard' ? fastify.queueHard : fastify.queueLite;
+
+    try {
+      await Promise.all([
+        targetQueue.add(
+          'ai-job',
+          {
+            jobId,
+            userId: body.userId,
+            requestedModel,
+            model: selectedModel,
+            payload: body.payload,
+            role: body.role,
+            modeType,
           },
-        }
-      ),
-      fastify.redis.hset(redisKeys.jobMeta(jobId), {
-        user_id: body.userId,
-        requested_model: requestedModel,
-        processed_model: selectedModel,
-        created_at: new Date(now).toISOString(),
-        status: 'queued',
-        attempts: 0,
-      }),
-    ]);
+          {
+            jobId,
+          }
+        ),
+        fastify.redis.hset(redisKeys.jobMeta(jobId), {
+          user_id: body.userId,
+          requested_model: requestedModel,
+          processed_model: selectedModel,
+          created_at: new Date(now).toISOString(),
+          status: 'queued',
+          attempts: 0,
+          mode_type: modeType,
+        }),
+      ]);
+    } catch (err) {
+      await fastify.redis.decr(waitingKey);
+      throw err;
+    }
 
     return { jobId };
   });
@@ -183,15 +197,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
   });
 }
-
-const pickRpdLimit = (
-  limits: Awaited<ReturnType<typeof getCachedUserLimits>>,
-  modelId: string
-) => {
-  // const isHard = modelId.toLowerCase().includes("pro"); // modelsByType
-  const isHard = modelId === 'pro2dot5'; // need add Hash with model types
-  return isHard ? limits.hard_rpd : limits.lite_rpd;
-};
 
 const parseMaybeJson = (input: string | undefined) => {
   if (!input) return null;

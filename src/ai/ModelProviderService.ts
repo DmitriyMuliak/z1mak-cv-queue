@@ -45,7 +45,9 @@ export class ModelProviderService {
 
   private isRetryableError(error: unknown): boolean {
     const status = this.extractStatus(error);
-    return status === 429 || (typeof status === 'number' && status >= 500);
+    if (status === 429) return true;
+    if (status === 502 || status === 503 || status === 504) return true;
+    return false;
   }
 
   private extractStatus(error: unknown): number | undefined {

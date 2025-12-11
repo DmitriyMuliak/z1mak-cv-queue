@@ -1,18 +1,27 @@
 import { createRedisClient } from './redis/client';
 import { redisKeys } from './redis/keys';
 import { supabaseClient } from './db/client';
+import { Queue } from 'bullmq';
+import { env } from './config/env';
+import { getCurrentDatePT } from './utils/time';
 
 const redis = createRedisClient();
 
 const MODEL_RELOAD_MS = 5 * 60 * 1000;
 const DB_SYNC_MS = 30 * 1000;
 const ORPHAN_CLEAN_MS = 60 * 60 * 1000;
+const EXPIRE_CHECK_MS = 60 * 1000;
+const EXPIRE_SLA_MS = 30 * 60 * 1000; // 30 хв очікування
 
 let modelTimer: NodeJS.Timeout | undefined;
 let syncTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
+let expireTimer: NodeJS.Timeout | undefined;
 let warnedModelSkip = false;
 let warnedDbSyncSkip = false;
+
+const queueLite = new Queue(env.queueLiteName, { connection: { url: env.redisUrl } });
+const queueHard = new Queue(env.queueHardName, { connection: { url: env.redisUrl } });
 
 export const startCron = async () => {
   await reloadModelLimits();
@@ -23,18 +32,25 @@ export const startCron = async () => {
 
   await cleanupOrphanLocks();
   cleanupTimer = setInterval(cleanupOrphanLocks, ORPHAN_CLEAN_MS);
+
+   await expireStaleJobs();
+   expireTimer = setInterval(expireStaleJobs, EXPIRE_CHECK_MS);
 };
 
 export const stopCron = async () => {
   if (modelTimer) clearInterval(modelTimer);
   if (syncTimer) clearInterval(syncTimer);
   if (cleanupTimer) clearInterval(cleanupTimer);
+  if (expireTimer) clearInterval(expireTimer);
   modelTimer = undefined;
   syncTimer = undefined;
   cleanupTimer = undefined;
+  expireTimer = undefined;
 
   await redis.quit();
   await supabaseClient.end();
+  await queueLite.close();
+  await queueHard.close();
 };
 
 const reloadModelLimits = async () => {
@@ -76,37 +92,70 @@ const syncDbResults = async () => {
 
   const client = await supabaseClient.connect();
   try {
+    const rows = [];
     for (const resultKey of keys) {
       const jobId = resultKey.split(':')[1];
       const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
       const result = await redis.hgetall(resultKey);
 
+      rows.push({
+        jobId,
+        user_id: meta.user_id || null,
+        resume_id: meta.resume_id || null,
+        requested_model: meta.requested_model || null,
+        processed_model: meta.processed_model || null,
+        status: result.status || meta.status || 'unknown',
+        result: safeJsonParse(result.data),
+        error: result.error || null,
+        error_code: result.error_code || null,
+        created_at: meta.created_at || new Date().toISOString(),
+        finished_at: result.finished_at || null,
+        expired_at: result.expired_at || null,
+      });
+
+      await redis.del(resultKey, redisKeys.jobMeta(jobId));
+    }
+
+    const chunkSize = 100;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const values: any[] = [];
+      const placeholders = chunk
+        .map((row, idx) => {
+          const base = idx * 12;
+          values.push(
+            row.jobId,
+            row.user_id,
+            row.resume_id,
+            row.requested_model,
+            row.processed_model,
+            row.status,
+            row.result,
+            row.error,
+            row.error_code,
+            row.created_at,
+            row.finished_at,
+            row.expired_at
+          );
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12})`;
+        })
+        .join(', ');
+
       await client.query(
         `
-        INSERT INTO job (id, user_id, resume_id, requested_model, processed_model, status, result, error, created_at, finished_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO job (id, user_id, resume_id, requested_model, processed_model, status, result, error, error_code, created_at, finished_at, expired_at)
+        VALUES ${placeholders}
         ON CONFLICT (id) DO UPDATE
         SET status = EXCLUDED.status,
             result = EXCLUDED.result,
             error = EXCLUDED.error,
+            error_code = EXCLUDED.error_code,
             finished_at = EXCLUDED.finished_at,
-            processed_model = EXCLUDED.processed_model
+            processed_model = EXCLUDED.processed_model,
+            expired_at = EXCLUDED.expired_at
         `,
-        [
-          jobId,
-          meta.user_id || null,
-          meta.resume_id || null,
-          meta.requested_model || null,
-          meta.processed_model || null,
-          result.status || meta.status || 'unknown',
-          safeJsonParse(result.data),
-          result.error || null,
-          meta.created_at || new Date().toISOString(),
-          result.finished_at || null,
-        ]
+        values
       );
-
-      await redis.del(resultKey, redisKeys.jobMeta(jobId));
     }
   } finally {
     await client.release();
@@ -158,5 +207,69 @@ const safeJsonParse = (val: string | undefined) => {
     return JSON.parse(val);
   } catch {
     return null;
+  }
+};
+
+const expireStaleJobs = async () => {
+  const now = Date.now();
+  const queues = [
+    { queue: queueLite, type: 'lite' as const },
+    { queue: queueHard, type: 'hard' as const },
+  ];
+
+  for (const { queue, type } of queues) {
+    const jobs = await queue.getJobs(['waiting', 'delayed'], 0, 500);
+    for (const job of jobs) {
+      if (!job) continue;
+      const ageMs = now - (job.timestamp ?? now);
+      if (ageMs <= EXPIRE_SLA_MS) continue;
+
+      const data = job.data as any;
+      const userId = data?.userId;
+      const model = data?.model;
+      const jobId = job.id as string;
+
+      // Видаляємо з черги та виставляємо статус самостійно
+      await job.remove();
+
+      const pipeline = redis.pipeline();
+
+      if (model) {
+        pipeline.decr(redisKeys.queueWaitingModel(model));
+      }
+
+      if (userId) {
+        pipeline.zrem(redisKeys.userActiveJobs(userId), jobId);
+        pipeline.decr(redisKeys.userTypeRpd(userId, type, getCurrentDatePT()));
+      }
+
+      pipeline.hset(redisKeys.jobResult(jobId), {
+        status: 'failed',
+        error: 'expired',
+        error_code: 'expired',
+        finished_at: new Date().toISOString(),
+        expired_at: new Date().toISOString(),
+      });
+      pipeline.hset(redisKeys.jobMeta(jobId), {
+        status: 'failed',
+        updated_at: new Date().toISOString(),
+      });
+
+      await pipeline.exec();
+
+      if (model) {
+        const current = await redis.get(redisKeys.queueWaitingModel(model));
+        if (current && Number(current) < 0) {
+          await redis.set(redisKeys.queueWaitingModel(model), 0);
+        }
+      }
+      if (userId) {
+        const rpdKey = redisKeys.userTypeRpd(userId, type, getCurrentDatePT());
+        const rpdVal = await redis.get(rpdKey);
+        if (rpdVal && Number(rpdVal) < 0) {
+          await redis.set(rpdKey, 0);
+        }
+      }
+    }
   }
 };

@@ -146,10 +146,17 @@ export const waitForProcessedModel = async (
 
 export const startCompose = async () => {
   if (!usingCompose) return;
-  // execSync(`docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`, {
-  //   stdio: 'inherit',
-  // });
-  execSync(`docker compose -f ${composeFile} up -d redis api worker mock-gemini`, {
+  // For local debug:
+  // START
+  // First shell
+  // docker compose -f docker-compose.test.yml up -d --build redis api worker mock-gemini
+  // Second shell
+  // docker compose -f docker-compose.test.yml logs -f api worker
+  // Third shell
+  // TEST_USE_COMPOSE=0 npm test -- rateLimiter.test.ts
+  // STOP
+  // docker compose -f docker-compose.test.yml down
+  execSync(`docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`, {
     stdio: 'inherit',
   });
   await waitForApi();
