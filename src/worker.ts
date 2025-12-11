@@ -4,7 +4,6 @@ import { env } from './config/env';
 import { createRedisClient } from './redis/client';
 import { ModelProviderService } from './ai/ModelProviderService';
 import { getSecondsUntilMidnightPT, getCurrentDatePT } from './utils/time';
-import { getCachedUserLimits } from './services/limitsCache';
 import type { Mode } from '../types/mode';
 
 type ModeType = 'hard' | 'lite';
@@ -58,9 +57,8 @@ const releaseWaitingCounter = async (model: string) => {
   }
 };
 
-const returnTokens = async (userId: string, model: string, modeType: ModeType) => {
+const returnTokens = async (model: string) => {
   const dayTtl = getSecondsUntilMidnightPT();
-  const todayPT = getCurrentDatePT();
   const pipeline = redis.pipeline();
 
   pipeline.decrby(redisKeys.modelRpm(model), 1);
@@ -91,12 +89,12 @@ const consumeModelLimits = async (
 };
 
 const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
-  const { userId, model, payload, role } = job.data;
+  const { userId, model, payload } = job.data;
   const jobId = job.id as string;
   const now = new Date().toISOString();
   const prefix = `[worker:${queueType}] job:${jobId} model:${model} user:${userId}`;
 
-  console.log(`${prefix} start`);
+  
 
   await redis.hset(redisKeys.jobMeta(jobId), {
     status: 'in_progress',
@@ -104,8 +102,6 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   });
 
   try {
-    const limits = await getCachedUserLimits(redis, userId, role);
-
     const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
     const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
     const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
@@ -116,14 +112,14 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       userRpd: 0, // user RPD спожито в API
     });
 
-    console.log(`${prefix} consumeCode=${consumeCode}`);
+    
 
     if (consumeCode === ConsumeCode.ModelRpmExceeded) {
       const ttl = await redis.ttl(redisKeys.modelRpm(model));
       const delayMs = Math.max(ttl, 1) * 1000;
       await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
       await job.moveToDelayed(Date.now() + delayMs);
-      console.log(`${prefix} rpm exceeded, delayMs=${delayMs}`);
+      
       return;
     }
 
@@ -138,7 +134,7 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       });
       await removeLock(userId, jobId);
       await releaseWaitingCounter(model);
-      console.log(`${prefix} failed early reason=${reason}`);
+      
       return;
     }
 
@@ -165,9 +161,9 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
 
     await removeLock(userId, jobId);
     await releaseWaitingCounter(model);
-    console.log(`${prefix} completed`);
+
   } catch (err: any & { retryable?: boolean }) {
-    console.error(`${prefix} error`, err?.message || err);
+    
     // Якщо помилка не ретраїбл або 5xx (не ретраїмо за домовленістю) — фіксуємо як failed
     if (!err?.retryable) {
       await redis.hset(redisKeys.jobResult(jobId), {
@@ -219,10 +215,8 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
 
     const userId = meta.user_id;
     const model = meta.processed_model || meta.requested_model;
-    const modeTypeMeta = meta.mode_type === 'hard' ? 'hard' : 'lite';
-
     if (userId && model && meta.tokens_consumed === 'true') {
-      await returnTokens(userId, model, modeTypeMeta);
+      await returnTokens(model);
     }
 
     if (userId) {

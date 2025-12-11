@@ -3,7 +3,7 @@ import { redisKeys } from './redis/keys';
 import { supabaseClient } from './db/client';
 import { Queue } from 'bullmq';
 import { env } from './config/env';
-import { getCurrentDatePT } from './utils/time';
+import { getCurrentDatePT, getSecondsUntilMidnightPT } from './utils/time';
 
 const redis = createRedisClient();
 
@@ -53,6 +53,17 @@ export const stopCron = async () => {
   await queueHard.close();
 };
 
+const scanKeys = async (pattern: string, count = 500): Promise<string[]> => {
+  let cursor = '0';
+  const keys: string[] = [];
+  do {
+    const [next, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', count);
+    cursor = next;
+    if (batch.length) keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+};
+
 const reloadModelLimits = async () => {
   if (supabaseClient.isMock) {
     if (!warnedModelSkip) {
@@ -87,40 +98,42 @@ const syncDbResults = async () => {
     return;
   }
 
-  const keys = await redis.keys('job:*:result');
+  const keys = await scanKeys('job:*:result');
   if (keys.length === 0) return;
 
   const client = await supabaseClient.connect();
   try {
-    const rows = [];
-    for (const resultKey of keys) {
-      const jobId = resultKey.split(':')[1];
-      const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
-      const result = await redis.hgetall(resultKey);
+    const chunkSize = 200;
+    for (let offset = 0; offset < keys.length; offset += chunkSize) {
+      const slice = keys.slice(offset, offset + chunkSize);
+      const rows: any[] = [];
+      for (const resultKey of slice) {
+        const jobId = resultKey.split(':')[1];
+        const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
+        const result = await redis.hgetall(resultKey);
 
-      rows.push({
-        jobId,
-        user_id: meta.user_id || null,
-        resume_id: meta.resume_id || null,
-        requested_model: meta.requested_model || null,
-        processed_model: meta.processed_model || null,
-        status: result.status || meta.status || 'unknown',
-        result: safeJsonParse(result.data),
-        error: result.error || null,
-        error_code: result.error_code || null,
-        created_at: meta.created_at || new Date().toISOString(),
-        finished_at: result.finished_at || null,
-        expired_at: result.expired_at || null,
-      });
+        rows.push({
+          jobId,
+          user_id: meta.user_id || null,
+          resume_id: meta.resume_id || null,
+          requested_model: meta.requested_model || null,
+          processed_model: meta.processed_model || null,
+          status: result.status || meta.status || 'unknown',
+          result: safeJsonParse(result.data),
+          error: result.error || null,
+          error_code: result.error_code || null,
+          created_at: meta.created_at || new Date().toISOString(),
+          finished_at: result.finished_at || null,
+          expired_at: result.expired_at || null,
+        });
 
-      await redis.del(resultKey, redisKeys.jobMeta(jobId));
-    }
+        await redis.del(resultKey, redisKeys.jobMeta(jobId));
+      }
 
-    const chunkSize = 100;
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
+      if (rows.length === 0) continue;
+
       const values: any[] = [];
-      const placeholders = chunk
+      const placeholders = rows
         .map((row, idx) => {
           const base = idx * 12;
           values.push(
@@ -163,7 +176,7 @@ const syncDbResults = async () => {
 };
 
 const cleanupOrphanLocks = async () => {
-  const keys = await redis.keys('user:*:active_jobs');
+  const keys = await scanKeys('user:*:active_jobs');
 
   await Promise.all(
     keys.map(async (key) => {
@@ -212,6 +225,7 @@ const safeJsonParse = (val: string | undefined) => {
 
 const expireStaleJobs = async () => {
   const now = Date.now();
+  const dayTtl = getSecondsUntilMidnightPT();
   const queues = [
     { queue: queueLite, type: 'lite' as const },
     { queue: queueHard, type: 'hard' as const },
@@ -239,8 +253,10 @@ const expireStaleJobs = async () => {
       }
 
       if (userId) {
+        const rpdKey = redisKeys.userTypeRpd(userId, type, getCurrentDatePT());
         pipeline.zrem(redisKeys.userActiveJobs(userId), jobId);
-        pipeline.decr(redisKeys.userTypeRpd(userId, type, getCurrentDatePT()));
+        pipeline.decr(rpdKey);
+        pipeline.expire(rpdKey, dayTtl);
       }
 
       pipeline.hset(redisKeys.jobResult(jobId), {
@@ -268,8 +284,18 @@ const expireStaleJobs = async () => {
         const rpdVal = await redis.get(rpdKey);
         if (rpdVal && Number(rpdVal) < 0) {
           await redis.set(rpdKey, 0);
+          await redis.expire(rpdKey, dayTtl);
         }
       }
     }
   }
+};
+
+// Для юніт-тестів
+export const __test = {
+  reloadModelLimits,
+  syncDbResults,
+  cleanupOrphanLocks,
+  expireStaleJobs,
+  scanKeys,
 };

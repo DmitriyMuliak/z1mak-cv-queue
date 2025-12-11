@@ -130,7 +130,7 @@ export const waitForJobResult = async (
     if (result && Object.keys(result).length > 0) {
       return result;
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Job ${jobId} did not complete`);
 };

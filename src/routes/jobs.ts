@@ -70,8 +70,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     let selectedModelRpm = 0;
     let selectedModelRpd = 0;
 
-    console.log('asdasdasdasdasdsadasdasdas')
-
     for (const candidate of modelChain) {
       const modelLimits = await fastify.redis.hgetall(redisKeys.modelLimits(candidate));
 
@@ -120,7 +118,6 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     
     const waitingKey = redisKeys.queueWaitingModel(selectedModel);
     const waitingCount = await fastify.redis.incr(waitingKey);
-    console.log({waitingKey, waitingCount, maxQueueLength })
     
     if (waitingCount > maxQueueLength) {
       await fastify.redis.decr(waitingKey);

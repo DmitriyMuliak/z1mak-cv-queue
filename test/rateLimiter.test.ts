@@ -31,12 +31,12 @@ describe('Rate limiter (model RPM/RPD)', () => {
     redis = createRedis();
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
     await waitForApi();
-  }, 180_000);
+  }, 30_000);
 
   afterAll(async () => {
     await redis?.quit();
     await stopCompose();
-  }, 60_000);
+  }, 30_000);
 
   beforeEach(async () => {
     await redis.flushall();
@@ -68,7 +68,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('USER_RPD_LIMIT');
     },
-    30_000
+    
   );
 
   it(
@@ -100,7 +100,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(completed.length).toBeLessThanOrEqual(2);
       expect(completed.length + failed.length).toBe(accepted.length);
     },
-    30_000
+    
   );
 
   it('returns QUEUE_FULL when backlog cap is hit', async () => {
@@ -116,12 +116,55 @@ describe('Rate limiter (model RPM/RPD)', () => {
     await redis.set(waitingKey, 1);
 
     const first = await postJob(body);
-    // const second = await postJob(body);
-
-    // expect(first.status).toBe(200);
     expect(first.status).toBe(429);
     expect(first.json.error).toBe('QUEUE_FULL');
+
+    const counter = Number(await redis.get(waitingKey));
+    expect(counter).toBe(1);
   });
+
+  it(
+    'fails fast on model RPD in worker for unlimited/admin user',
+    async () => {
+      const modelId = 'flashLite';
+      await seedModelLimits(redis, modelId, 100, 1); // RPD=1, rpm high to avoid delays
+      await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
+
+      const body = { ...createBody('lite'), userId: 'model-rpd-admin', role: 'admin' as const };
+
+      const first = await postJob(body);
+      expect(first.status).toBe(200);
+      const firstResult = await waitForJobResult(redis, first.json.jobId, 10_000);
+      expect(firstResult.status).toBe('completed');
+
+      const second = await postJob(body);
+      expect(second.status).toBe(200); // API не знає про модельні ліміти
+      const secondResult = await waitForJobResult(redis, second.json.jobId, 10_000);
+      expect(secondResult.status).toBe('failed');
+      expect(secondResult.error).toBe('MODEL_RPD_EXCEEDED');
+    },
+    
+  );
+
+  it(
+    'enforces default lite_rpd=9 for users without cached limits',
+    async () => {
+      const modelId = 'flashLite';
+      await seedModelLimits(redis, modelId, 500, 500); // високі модельні ліміти
+
+      const body = { ...createBody('lite'), userId: 'no-limit-row', role: 'user' as const };
+
+      for (let i = 0; i < 9; i++) {
+        const res = await enqueueAndWait(body, redis);
+        expect(res.status).toBe(200);
+      }
+
+      const tenth = await postJob(body);
+      expect(tenth.status).toBe(429);
+      expect(tenth.json.error).toBe('USER_RPD_LIMIT');
+    },
+    
+  );
 
   it(
     'throttles user RPD',
@@ -148,7 +191,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('USER_RPD_LIMIT');
     },
-    30_000
+    
 );
 
   it(
@@ -175,7 +218,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('CONCURRENCY_LIMIT');
     },
-    30_000
+    
   );
 
   it(
@@ -202,7 +245,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('USER_RPD_LIMIT');
     },
-    30_000
+    
   );
 
   it(
@@ -229,7 +272,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('USER_RPD_LIMIT');
     },
-    30_000
+    
   );
 
   it(
@@ -254,7 +297,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const second = await postJob(body);
       expect(second.status).toBe(200);
     },
-    30_000
+    
   );
 
   it(
@@ -269,26 +312,23 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const usedModel = await waitForProcessedModel(redis, res.json.jobId, 20_000);
       expect(usedModel).toBe('flashLitePreview');
     },
-    30_000
+    
   );
 
   it(
-    'applies default user limits when no user record exists',
+    'applies default user limits (lite_rpd is 9) when no user record exists',
     async () => {
       const modelId = 'flashLite';
       await seedModelLimits(redis, modelId, 100, 100);
 
       const body = { ...createBody('lite'), userId: 'no-cache-user', role: 'user' as const };
-
-      // default lite_rpd is 9, so перші виклики можуть упиратись у backpressure/модельні ліміти
       let successes = 0;
       for (let i = 0; i < 10; i++) {
         const call = await enqueueAndWait(body, redis);
         if (call.status === 200) successes++;
       }
-      console.log('successes', successes)
-      expect(successes).toBeGreaterThan(0);
+      expect(successes).toBe(9);
     },
-    30_000
+    
   );
 });

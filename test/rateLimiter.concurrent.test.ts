@@ -42,12 +42,12 @@ describe('Rate limiter concurrency bursts', () => {
     redis = createRedis();
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
     await waitForApi();
-  }, 180_000);
+  }, 30_000);
 
   afterAll(async () => {
     await redis?.quit();
     await stopCompose();
-  }, 60_000);
+  }, 30_000);
 
   beforeEach(async () => {
     await redis.flushall();
@@ -63,7 +63,7 @@ describe('Rate limiter concurrency bursts', () => {
       const results = await parallelCalls(5, () => postJob(body));
       expect(results.every((r) => r.status === 200)).toBe(true);
     },
-    30_000
+    
   );
 
   it(
@@ -89,7 +89,7 @@ describe('Rate limiter concurrency bursts', () => {
       expect(failures.length).toBe(15);
       expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT')).toBe(true);
     },
-    60_000
+    
   );
 
   it(
@@ -115,7 +115,7 @@ describe('Rate limiter concurrency bursts', () => {
       expect(failures.length).toBeGreaterThanOrEqual(8);
       expect(failures.every((r) => r.json.error === 'CONCURRENCY_LIMIT')).toBe(true);
     },
-    60_000
+    
   );
 
   it(
@@ -128,10 +128,9 @@ describe('Rate limiter concurrency bursts', () => {
       const failures = results.filter((r) => r.status !== 200);
       expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
       expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT')).toBe(true);
-      // допускаємо QUEUE_FULL, але більшість мають пройти
+      // допускаємо QUEUE_FULL, але більшість (backpressure) мають пройти 
       const successes = results.filter((r) => r.status === 200);
       expect(successes.length).toBeGreaterThan(150);
     },
-    60_000
   );
 });
