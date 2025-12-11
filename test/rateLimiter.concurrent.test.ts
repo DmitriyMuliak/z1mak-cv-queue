@@ -128,9 +128,10 @@ describe('Rate limiter concurrency bursts', () => {
       const failures = results.filter((r) => r.status !== 200);
       expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
       expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT')).toBe(true);
-      // допускаємо QUEUE_FULL, але більшість (backpressure) мають пройти 
+      // допускаємо QUEUE_FULL через backpressure (~108 для rpm=100, avg=15s)
       const successes = results.filter((r) => r.status === 200);
-      expect(successes.length).toBeGreaterThan(150);
+      expect(successes.length).toBeGreaterThan(90);
+      expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);
     },
   );
 });

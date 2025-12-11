@@ -2,22 +2,22 @@
 
 Цей сервіс — окремий Docker-модуль, що складається з:
 
-| Компонент                      | Призначення                                                                                                |
-| :----------------------------- | :--------------------------------------------------------------------------------------------------------- |
-| **Fastify API Server**         | Приймає запити на запуск AI job, викликає Lua checks, аплаює fallback **(для вибору моделі)**, enqueue job |
-| **BullMQ Queue**               | Системна черга задач                                                                                       |
-| **Worker Pool**                | Виконує задачі, взаємодіє з AI моделями, **керує retry**                                                   |
-| **Redis**                      | Тимчасове зберігання job metadata, concurrency locks, модельні ліміти                                      |
-| **DB Sync Cron**               | Регулярно переносить завершені job з Redis → persistent DB                                                 |
-| **CDN + Browser Cache Layers** | Захист для зниження навантаження                                                                           |
+| Компонент                      | Призначення                                                                                                          |
+| :----------------------------- | :------------------------------------------------------------------------------------------------------------------- |
+| **Fastify API Server**         | Приймає запити на запуск AI job, обирає модель + fallback-ланцюжок, викликає Lua для user RPD + concurrency, backpressure |
+| **BullMQ Queue (lite/hard)**   | Окремі черги для lite/hard режимів                                                                                   |
+| **Worker Pool**                | Виконує задачі, взаємодіє з AI, застосовує модельні RPM/RPD, керує retry                                             |
+| **Redis**                      | Тимчасове зберігання job metadata, лічильники RPD/RPM, waiting counters, concurrency locks                           |
+| **DB Sync Cron**               | SCAN + батчевий перенос завершених job з Redis → persistent DB                                                       |
+| **Cleanup Cron**               | Прибирає orphan locks / stale jobs, повертає ліміти                                                                  |
 
 Сервіс гарантує:
 
-- **конкурентність лише в межах лімітів**
+- **конкурентність лише в межах лімітів (per-user)**
 - **ізольований high-performance API**
-- **атомарність перевірок у Redis (Lua)**
-- **раціональний fallback** (на етапі вибору моделі)
-- **автоматичні retry через BullMQ**
+- **атомарність user RPD + concurrency в Redis (Lua)**
+- **fallback моделі на API-шарі до enqueue**
+- **автоматичні retry через BullMQ для retryable помилок**
 - **детерміноване збереження результатів у БД**
 - **стійкість до збоїв, рестартів, райдужних днів**
 
@@ -28,7 +28,7 @@
 ```mermaid
 flowchart TD
     A[Client App NextJS] --> B[Jobs API - Fastify]
-    B --> C{{Redis Lua Checks\nConcurrency / User RPD / Model Limits}}
+    B --> C{{Redis Lua Checks\nConcurrency / User RPD}}
     C -->|OK| R1[Redis Storage\nHashes + ZSETs]
     C -->|Limit Exceeded| F1[Try Fallback Model]
     F1 -->|Fallback Exists| C
@@ -52,12 +52,13 @@ flowchart TD
 
 | Feature                           | Guarantee                                                                             |
 | :-------------------------------- | :------------------------------------------------------------------------------------ |
-| **Global Model Limits (RPM/RPD)** | Моделі не перевантажуються (токен списується **в API** на етапі вибору моделі)        |
-| **User Daily RPD (Fixed Window)** | Користувач ніколи не обійде денний ліміт (скидається о 00:00 PT)                      |
-| **Concurrency (ZSET TTL)**        | Немає подвійних lock, нема zombie                                                     |
+| **Global Model Limits (RPM/RPD)** | Моделі не перевантажуються (списуються у воркері; RPM → delayed, RPD → fail)          |
+| **User Daily RPD (Fixed Window)** | API бере токен через Lua (до enqueue)                                                 |
+| **User Concurrency (ZSET TTL)**   | API тримає активні job-и з TTL ~31 хв, чистить зомбі в Lua і воркері                  |
+| **Queue Backpressure**            | Для кожної моделі є `queue:waiting:{model}` + динамічний `maxQueueLength` (~30 хв SLA) |
 | **Fallback**                      | Моделі автоматично зміщуються вниз по пріоритету **в API-шарі** до постановки в чергу |
-| **Retry**                         | AI 429/5xx → delayed retry **(керований BullMQ для однієї обраної моделі)**           |
-| **Token Return**                  | Токени RPD/RPM повертаються у разі фінального провалу завдання                        |
+| **Retry**                         | AI retryable → BullMQ delay; non-retryable/limit → негайний fail                      |
+| **Token Return**                  | Модельні токени повертаються при фінальному фейлі/відпрацюванні QueueEvents           |
 | **DB Persistence**                | Жодна job не губиться                                                                 |
 | **Zero Downtime Reconfiguration** | Model limits hot-reload                                                               |
 | **Scalability**                   | До 20–50k RPS без великих змін                                                        |
@@ -67,15 +68,10 @@ flowchart TD
 
 # 🔥 4. **API-Level Fallback FSM (Pre-Enqueue)**
 
-API-level fallback працює до того, як job потрапляє в чергу.
-Тому fallback на цьому рівні контролює:
-
-- ліміти моделей
-- ліміти юзера
-- concurrency
-- доступність моделей
-
-<!-- end list -->
+API-level fallback працює до enqueue і контролює:
+- user RPD (per mode) + concurrency
+- backpressure по моделі
+- доступність моделі (наявність limits)
 
 ```mermaid
 stateDiagram-v2
@@ -95,7 +91,7 @@ stateDiagram-v2
 
 # 👷‍♂️ 5. **Worker-Level FSM (Post-Enqueue)**
 
-Логіка **Fallback** відсутня. Логіка **Retry** повністю делегована BullMQ.
+Логіка **Fallback** відсутня. Логіка **Retry** повністю делегована BullMQ. Модельні ліміти застосовуються тут.
 
 ```mermaid
 flowchart TD
@@ -140,14 +136,19 @@ model:{name}:limits
   updated_at
 ```
 
-## 7.2 Per-user RPD (HASH) (Fixed Window)
+## 7.2 Per-user RPD (ZSET TTL)
 
 ```
-user:{id}:daily:{YYYY-MM-DD}
-  used_rpd
+user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
 ```
 
-## 7.3 Concurrency Locks (ZSET)
+## 7.3 Queue Waiting per Model (STRING)
+
+```
+queue:waiting:{model} = current enqueued/waiting count
+```
+
+## 7.4 Concurrency Locks (ZSET)
 
 ```
 user:{id}:active_jobs
@@ -157,7 +158,7 @@ user:{id}:active_jobs
 
 Self-cleaning on every write.
 
-## 7.4 Job Metadata (HASH)
+## 7.5 Job Metadata (HASH)
 
 ```
 job:{id}:meta
@@ -166,56 +167,44 @@ job:{id}:meta
   created_at
   updated_at
   attempts
+  mode_type
+  requested_model
+  processed_model
+  status
 ```
 
-## 7.5 Job Result (HASH)
+## 7.6 Job Result (HASH)
 
 ```
 job:{id}:result
   status
   error
+  error_code
   finished_at
   data (JSON string)
+  used_model
 ```
 
 ---
 
 # 🧠 8. **Lua Scripts (Atomic Enforcement)**
 
-## 8.1 Concurrency Lock
+## 8.1 combinedCheckAndAcquire (API: user RPD + concurrency)
 
 ```lua
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-local count = redis.call('ZCARD', KEYS[1])
-if count >= tonumber(ARGV[3]) then return 0 end
-local expiry = tonumber(ARGV[1]) + tonumber(ARGV[2])
-redis.call('ZADD', KEYS[1], expiry, ARGV[4])
+-- KEYS[1]=user:rpd:{type}:{date}, KEYS[2]=user:active_jobs
+-- ARGV: user_day_limit, concurrency_limit, day_ttl, lock_ttl, consume, now_ms, jobId
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now_ms)
+if concurrency_limit > 0 and redis.call('ZCARD', KEYS[2]) >= concurrency_limit then return 0 end
+if user_day_limit > 0 and getOrZero(KEYS[1]) + consume > user_day_limit then return -4 end
+if concurrency_limit > 0 then redis.call('ZADD', KEYS[2], now_ms + lock_ttl*1000, jobId) end
+if user_day_limit > 0 then redis.call('INCRBY', KEYS[1], consume); redis.call('EXPIRE', KEYS[1], day_ttl) end
 return 1
 ```
 
-Ensures:
+## 8.2 consumeExecutionLimits (Worker: model RPM/RPD, optional user RPD)
 
-- no SCAN required
-- no race conditions
-- no zombie locks
-
-## 8.2 User RPD (Fixed Window HASH)
-
-Ми використовуємо Lua-скрипт `combinedCheckAndAcquire` для **атомарної** перевірки та інкременту лічильників. Логіка RPD тут спростилася до `HINCRBY` та встановлення TTL.
-
-**Logic:** Check if the current value + 1 exceeds the limit. If not, increment and set TTL (if key is new).
-
-```lua
--- RPD/RPM checks are combined into one script: combinedCheckAndAcquire
---
--- RPD Logic snippet (KEY[4], ARGV[4]=limit, ARGV[7]=dayTtl, ARGV[8]=cost)
-local rpd_current = redis.call('HGET', KEYS[4], 'count')
-if not rpd_current then rpd_current = 0 end
-if rpd_current + ARGV[8] > tonumber(ARGV[4]) then return -4 end -- USER_RPD_EXCEEDED
-redis.call('HINCRBY', KEYS[4], 'count', ARGV[8])
-redis.call('EXPIRE', KEYS[4], ARGV[7]) -- Set TTL until midnight
--- ... інші лічильники
-```
+RPM → -1, RPD → -2, user RPD → -3, інакше 1; при перевищенні RPM воркер ставить delayed на TTL ключа.
 
 ---
 
@@ -234,9 +223,9 @@ redis.call('EXPIRE', KEYS[4], ARGV[7]) -- Set TTL until midnight
 
 Cron (30 seconds):
 
-1.  `SCAN job:*:result`
+1.  `SCAN job:*:result` батчами (chunk 200)
 2.  merge(meta + result)
-3.  batch insert → DB
+3.  batch insert → DB (upsert)
 4.  delete Redis keys
 
 Guarantees:
@@ -249,14 +238,15 @@ Guarantees:
 
 # 🧨 11. **Failure Modes**
 
-| Failure              | Behaviour                               |
-| :------------------- | :-------------------------------------- |
-| Redis down           | System permissive, auto-recovery        |
-| Worker crash         | job requeued, lock auto-expires         |
-| API crash            | stateless, locks unaffected             |
-| DB temporary down    | Redis keeps data until next sync        |
-| Cron failure         | next run resumes processing             |
-| **Final Job Failed** | **Токени RPD/RPM повертаються у Redis** |
+| Failure              | Behaviour                                                                    |
+| :------------------- | :--------------------------------------------------------------------------- |
+| Redis down           | System permissive, auto-recovery                                            |
+| Worker crash         | job requeued, lock auto-expires                                             |
+| API crash            | stateless, locks unaffected                                                 |
+| DB temporary down    | Redis keeps data until next sync                                            |
+| Cron failure         | next run resumes processing                                                 |
+| **Final Job Failed** | **Модельні токени повертаються; status=failed записується**                  |
+| Stale jobs           | Cron `expireStaleJobs` знімає waiting/locks/RPD, виставляє error_code=expired |
 
 ---
 

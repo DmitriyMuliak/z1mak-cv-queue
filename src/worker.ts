@@ -92,9 +92,6 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   const { userId, model, payload } = job.data;
   const jobId = job.id as string;
   const now = new Date().toISOString();
-  const prefix = `[worker:${queueType}] job:${jobId} model:${model} user:${userId}`;
-
-  
 
   await redis.hset(redisKeys.jobMeta(jobId), {
     status: 'in_progress',
@@ -126,16 +123,11 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
     if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
       const reason =
         consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
-      await redis.hset(redisKeys.jobResult(jobId), {
-        status: 'failed',
-        error: reason,
-        error_code: consumeCode === ConsumeCode.ModelRpdExceeded ? 'limit' : 'expired',
-        finished_at: new Date().toISOString(),
-      });
-      await removeLock(userId, jobId);
-      await releaseWaitingCounter(model);
-      
-      return;
+      // не ретраїмо такі фейли
+      await job.discard();
+      const err = new Error(reason);
+      (err as any).error_code = consumeCode === ConsumeCode.ModelRpdExceeded ? 'limit' : 'expired';
+      throw err;
     }
 
     await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
@@ -159,25 +151,11 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       used_model: result.usedModel,
     });
 
-    await removeLock(userId, jobId);
-    await releaseWaitingCounter(model);
-
   } catch (err: any & { retryable?: boolean }) {
-    
-    // Якщо помилка не ретраїбл або 5xx (не ретраїмо за домовленістю) — фіксуємо як failed
+    // retryable — нехай BullMQ робить retry; неретрайбл — дискардамо, щоб не було повторних спроб
     if (!err?.retryable) {
-      await redis.hset(redisKeys.jobResult(jobId), {
-        status: 'failed',
-        error: err?.message || 'Unknown error',
-        error_code: 'provider_error',
-        finished_at: new Date().toISOString(),
-      });
-      await removeLock(userId, jobId);
-      await releaseWaitingCounter(model);
-      return;
+      await job.discard();
     }
-
-    // retryable — нехай BullMQ робить retry
     throw err;
   }
 };
@@ -225,10 +203,15 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
 
     await releaseWaitingCounter(model);
 
+    const reason = failedReason || 'provider_error';
+    let errorCode = 'provider_error';
+    if (reason === 'MODEL_RPD_EXCEEDED') errorCode = 'limit';
+    if (reason === 'USER_RPD_EXCEEDED') errorCode = 'expired';
+
     await redis.hset(redisKeys.jobResult(jobId as string), {
       status: 'failed',
-      error: failedReason,
-      error_code: 'provider_error',
+      error: reason,
+      error_code: errorCode,
       finished_at: new Date().toISOString(),
     });
   });

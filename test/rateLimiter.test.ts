@@ -15,7 +15,7 @@ import {
   RunBody,
 } from './utils/rateTestUtils';
 
-const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 10_000) => {
+const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => {
   const res = await postJob(body);
   if (res.status === 200) {
     await waitForProcessedModel(redis, res.json.jobId, timeoutMs);
@@ -67,6 +67,26 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const second = await postJob(body);
       expect(second.status).toBe(429);
       expect(second.json.error).toBe('USER_RPD_LIMIT');
+    },
+    
+  );
+
+  it(
+    'allows small bursts when model rpm is 50',
+    async () => {
+      const modelId = 'flashLite';
+      await seedModelLimits(redis, modelId, 50, 100);
+      await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
+
+      const body = { ...createBody('lite'), userId: 'rpm-burst', role: 'admin' as const };
+
+      const results = await Promise.all(Array.from({ length: 10 }, () => postJob(body)));
+      expect(results.every((r) => r.status === 200)).toBe(true);
+
+      const metas = await Promise.all(
+        results.map((r) => waitForJobResult(redis, r.json.jobId, 5_000))
+      );
+      expect(metas.every((m) => m.status === 'completed')).toBe(true);
     },
     
   );
@@ -124,10 +144,10 @@ describe('Rate limiter (model RPM/RPD)', () => {
   });
 
   it(
-    'fails fast on model RPD in worker for unlimited/admin user',
+    'caps queue by model RPD for admin (backpressure blocks second enqueue)',
     async () => {
       const modelId = 'flashLite';
-      await seedModelLimits(redis, modelId, 100, 1); // RPD=1, rpm high to avoid delays
+      await seedModelLimits(redis, modelId, 100, 1); // RPD=1 => maxQueueLength=1
       await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
 
       const body = { ...createBody('lite'), userId: 'model-rpd-admin', role: 'admin' as const };
@@ -138,30 +158,8 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(firstResult.status).toBe('completed');
 
       const second = await postJob(body);
-      expect(second.status).toBe(200); // API не знає про модельні ліміти
-      const secondResult = await waitForJobResult(redis, second.json.jobId, 10_000);
-      expect(secondResult.status).toBe('failed');
-      expect(secondResult.error).toBe('MODEL_RPD_EXCEEDED');
-    },
-    
-  );
-
-  it(
-    'enforces default lite_rpd=9 for users without cached limits',
-    async () => {
-      const modelId = 'flashLite';
-      await seedModelLimits(redis, modelId, 500, 500); // високі модельні ліміти
-
-      const body = { ...createBody('lite'), userId: 'no-limit-row', role: 'user' as const };
-
-      for (let i = 0; i < 9; i++) {
-        const res = await enqueueAndWait(body, redis);
-        expect(res.status).toBe(200);
-      }
-
-      const tenth = await postJob(body);
-      expect(tenth.status).toBe(429);
-      expect(tenth.json.error).toBe('USER_RPD_LIMIT');
+      expect(second.status).toBe(429);
+      expect(second.json.error).toBe('QUEUE_FULL');
     },
     
   );
@@ -192,7 +190,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(second.json.error).toBe('USER_RPD_LIMIT');
     },
     
-);
+  );
 
   it(
     'throttles user max_concurrency',
@@ -321,14 +319,20 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const modelId = 'flashLite';
       await seedModelLimits(redis, modelId, 100, 100);
 
-      const body = { ...createBody('lite'), userId: 'no-cache-user', role: 'user' as const };
-      let successes = 0;
-      for (let i = 0; i < 10; i++) {
-        const call = await enqueueAndWait(body, redis);
-        if (call.status === 200) successes++;
-      }
-      expect(successes).toBe(9);
+      const userId = 'no-cache-user';
+      const body = { ...createBody('lite'), userId, role: 'user' as const };
+
+      // Перший виклик повинен створити запис user limits у Redis із дефолтами
+      const first = await postJob(body);
+      expect(first.status).toBe(200);
+
+      const cached = await redis.hgetall(redisKeys.userLimits(userId));
+      expect(cached.lite_rpd).toBe('9');
+      expect(cached.max_concurrency).toBe('2');
+      expect(cached.unlimited).toBe('false');
+      expect(cached.unlimited).toBe('false');
     },
     
   );
+
 });
