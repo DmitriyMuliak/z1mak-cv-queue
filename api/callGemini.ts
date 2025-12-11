@@ -7,9 +7,9 @@ import { Mode } from '../types/mode';
 const geminiModels = {
   pro3: 'gemini-3-pro-preview',
   pro2dot5: 'gemini-2.5-pro',
-  flash: 'gemini-2.5-flash',
+  flash: 'gemini-2.5-flash', // free-tier available
   flashPreview: 'gemini-2.5-flash-preview-09-2025',
-  flashLite: 'gemini-2.5-flash-lite',
+  flashLite: 'gemini-2.5-flash-lite', // free-tier available
 };
 
 const client = new GoogleGenAI({
