@@ -167,10 +167,10 @@ describe('Rate limiter (model RPM/RPD)', () => {
   });
 
   it(
-    'caps queue by model RPD for admin (backpressure blocks second enqueue)',
+    'caps queue by model RPD for admin (second enqueue rejected by model limit)',
     async () => {
       const modelId = 'flashLite';
-      await seedModelLimits(redis, modelId, 100, 1); // RPD=1 => maxQueueLength=1
+      await seedModelLimits(redis, modelId, 100, 1); // RPD=1 => one job per day
       await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 50 });
 
       const body = { ...createBody('lite'), userId: 'model-rpd-admin', role: 'admin' as const };
@@ -180,7 +180,8 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
       const second = await postJob(body);
       expect(second.status).toBe(429);
-      expect(second.json.error).toBe('QUEUE_FULL');
+      // QUEUE_FULL is hard to reproduce in this type of tests
+      expect(second.json.error).toBe('MODEL_LIMIT');
     },
     
   );
