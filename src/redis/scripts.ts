@@ -16,7 +16,7 @@ export const luaScripts = {
   // API-side: only user RPD + user concurrency
   combinedCheckAndAcquire,
 
-  // Worker-side: model RPM/RPD (user RPD споживається в API)
+  // Worker-side: model RPM/RPD (user RPD is consumed at the API layer)
   consumeExecutionLimits,
 
   // Atomic token return (model/user)

@@ -63,11 +63,10 @@ describe('cron logic', () => {
     expect(fakeRedis.hashes.has(redisKeys.jobResult(jobId))).toBe(false);
   });
 
-  it('cleanupOrphanLocks removes only jobs with existing results', async () => {
+  it('cleanupOrphanLocks removes only expired locks', async () => {
     const key = redisKeys.userActiveJobs('u1');
-    fakeRedis.zadd(key, Date.now(), 'keep');
-    fakeRedis.zadd(key, Date.now(), 'done');
-    fakeRedis.hset(redisKeys.jobResult('done'), { status: 'completed' });
+    fakeRedis.zadd(key, Date.now() + 100_000, 'keep');
+    fakeRedis.zadd(key, Date.now() - 1_000, 'done');
 
     await __test.cleanupOrphanLocks();
 
@@ -85,6 +84,7 @@ describe('cron logic', () => {
       timestamp: Date.now() - 40 * 60 * 1000,
       data: { userId: 'u1', model: 'm1' },
       remove: vi.fn(),
+      getState: vi.fn(async () => 'waiting'),
     };
     queue.getJobs.mockResolvedValue([staleJob]);
 
@@ -108,10 +108,10 @@ describe('cron logic', () => {
   });
 });
 
-// Помилки моків у cron-тестах були через хойстинг: Vitest піднімає vi.mock нагору файлу, 
-// і використовувані в моках змінні мають бути ініціалізовані до цього. 
-// Переписав тест із vi.hoisted, який створює всі моки 
-// (fakeRedis, supabaseClientMock, масиви) ще до хойстнутого vi.mock. 
+// Mock issues in cron tests were due to hoisting: Vitest lifts vi.mock to the top of the file,
+// so variables used in mocks must be initialized earlier.
+// Rewrote the test with vi.hoisted to create all mocks
+// (fakeRedis, supabaseClientMock, arrays) before the hoisted vi.mock.
 const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoisted(() => {
   const endsWithSafe = (key: string, suffix: string | undefined) =>
     suffix ? key.endsWith(suffix) : true;
@@ -119,7 +119,7 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
   class FakeRedis {
     strings = new Map<string, string>();
     hashes = new Map<string, Record<string, string>>();
-    zsets = new Map<string, Set<string>>();
+    zsets = new Map<string, Map<string, number>>();
     expirations = new Map<string, number>();
 
     scanCalls: Array<{ pattern: string; count: number }> = [];
@@ -176,20 +176,39 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     zrange(key: string, _start: number, _end: number) {
-      return Array.from(this.zsets.get(key) ?? []);
+      const map = this.zsets.get(key);
+      if (!map) return [];
+      return Array.from(map.entries())
+        .sort((a, b) => a[1] - b[1])
+        .map(([member]) => member);
     }
 
     zrem(key: string, member: string) {
-      const set = this.zsets.get(key);
-      if (!set) return 0;
-      const had = set.delete(member);
+      const map = this.zsets.get(key);
+      if (!map) return 0;
+      const had = map.delete(member);
       return had ? 1 : 0;
     }
 
-    zadd(key: string, _score: number, member: string) {
-      const set = this.zsets.get(key) ?? new Set<string>();
-      set.add(member);
-      this.zsets.set(key, set);
+    zadd(key: string, score: number, member: string) {
+      const map = this.zsets.get(key) ?? new Map<string, number>();
+      map.set(member, score);
+      this.zsets.set(key, map);
+    }
+
+    zremrangebyscore(key: string, min: number | string, max: number | string) {
+      const map = this.zsets.get(key);
+      if (!map) return 0;
+      const minNum = min === '-inf' ? Number.NEGATIVE_INFINITY : Number(min);
+      const maxNum = max === '+inf' ? Number.POSITIVE_INFINITY : Number(max);
+      let removed = 0;
+      for (const [member, score] of Array.from(map.entries())) {
+        if (score >= minNum && score <= maxNum) {
+          map.delete(member);
+          removed++;
+        }
+      }
+      return removed;
     }
 
     incr(key: string) {
@@ -202,6 +221,24 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
       const next = Number(this.strings.get(key) ?? 0) - 1;
       this.strings.set(key, String(next));
       return next;
+    }
+
+    returnTokensAtomic(
+      keys: [string, string, string],
+      args: [number, number, number, number]
+    ) {
+      const [rpmKey, rpdKey, userKey] = keys;
+      const [consume, minuteTtl, dayTtl, userTtl] = args;
+      const decrClamp = (key: string, ttl: number) => {
+        if (!key || key === '__nil__') return;
+        const val = (Number(this.strings.get(key) ?? 0) - consume);
+        const next = val < 0 ? 0 : val;
+        this.set(key, next);
+        if (ttl > 0) this.expire(key, ttl);
+      };
+      decrClamp(rpmKey, minuteTtl);
+      decrClamp(rpdKey, dayTtl);
+      decrClamp(userKey, userTtl);
     }
 
     expireStaleJob(
@@ -251,6 +288,11 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
           ops.push([null, exists]);
           return chain;
         },
+        del(...keys: string[]) {
+          self.del(...keys);
+          ops.push([null, 1]);
+          return chain;
+        },
         decr(key: string) {
           const val = self.decr(key);
           ops.push([null, val]);
@@ -264,6 +306,11 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
         expire(key: string, ttl: number) {
           self.expire(key, ttl);
           ops.push([null, 1]);
+          return chain;
+        },
+        zremrangebyscore(key: string, min: number | string, max: number | string) {
+          const res = self.zremrangebyscore(key, min, max);
+          ops.push([null, res]);
           return chain;
         },
         exec: async () => ops,

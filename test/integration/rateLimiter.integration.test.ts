@@ -119,7 +119,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
     async () => {
       const modelId = 'flashLite';
       // RPM > RPD - skip check by rpm
-      await seedModelLimits(redis, modelId, 50, 2); // 2 задачі на день
+      await seedModelLimits(redis, modelId, 50, 2); // 2 jobs per day
       await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
 
       const body = { ...createBody('lite'), userId: 'queue-backlog', role: 'admin' as const };
@@ -155,7 +155,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
     const body = { ...createBody('lite'), userId: 'queue-full', role: 'admin' as const };
 
     const waitingKey = redisKeys.queueWaitingModel(modelId);
-    // Заповнюємо лічильник до межі, щоб наступний INCR перевищив ліміт
+    // Fill the counter to the limit so the next INCR exceeds it
     await redis.set(waitingKey, 1);
 
     const first = await postJob(body);
@@ -341,7 +341,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const failures = results.filter((r) => r.status !== 200);
       expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
       expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT')).toBe(true);
-      // допускаємо QUEUE_FULL через backpressure (~108 для rpm=100, avg=15s)
+      // QUEUE_FULL is acceptable due to backpressure (~108 for rpm=100, avg=15s)
       const successes = results.filter((r) => r.status === 200);
       expect(successes.length).toBeGreaterThan(90);
       expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);

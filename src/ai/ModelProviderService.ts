@@ -2,7 +2,7 @@ import type { Mode } from '../../types/mode';
 import { GeminiProvider } from './providers/gemini/GeminiProvider';
 
 export interface ModelJobPayload {
-  model: string; // Модель, для якої списано токени
+  model: string; // Model tokens were consumed for
   cvDescription: string;
   jobDescription?: string;
   mode: Mode;
@@ -43,8 +43,8 @@ export class ModelProviderService {
     const status = this.extractStatus(error);
     const message = this.extractMessage(error);
 
-    // Fatal (не ретраїмо)
-    if (status === 429) return false; // зовнішній ліміт Gemini
+    // Fatal (do not retry)
+    if (status === 429) return false; // external Gemini limit
     if (status === 400 || status === 403 || status === 404) return false;
     if (status === 500 && this.isContextTooLong(message)) return false;
     if (status !== undefined && status >= 400 && status < 500) return false;
@@ -52,7 +52,7 @@ export class ModelProviderService {
     // Retryable
     if (status === 500 || status === 502 || status === 503 || status === 504) return true;
 
-    // За замовчуванням — спробуємо ретраїти
+    // Default: try retry if not matched above
     return true;
   }
 
@@ -84,7 +84,7 @@ export class ModelProviderService {
       lower.includes('context too long') ||
       lower.includes('input context is too long') ||
       lower.includes('too large') ||
-      lower.includes('exceeds') // на випадок формулювань про переповнення контексту
+      lower.includes('exceeds') // guard for wording about context overflow
     );
   }
 }

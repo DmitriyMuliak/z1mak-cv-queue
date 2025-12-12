@@ -49,11 +49,6 @@ const queueEvents = {
   hard: new QueueEvents(env.queueHardName, { connection: { url: env.redisUrl } }),
 };
 
-const releaseWaitingCounter = async (model: string) => {
-  const key = redisKeys.queueWaitingModel(model);
-  await redis.decrAndClampToZero([key]);
-};
-
 const returnTokens = async (model: string) => {
   const dayTtl = getSecondsUntilMidnightPT();
   await redis.returnTokensAtomic(
@@ -78,36 +73,41 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   const jobId = job.id as string;
   const now = new Date().toISOString();
 
+  const existingMeta = await redis.hgetall(redisKeys.jobMeta(jobId));
+  const tokensAlreadyConsumed = existingMeta.tokens_consumed === 'true';
+
   await redis.hset(redisKeys.jobMeta(jobId), {
     status: 'in_progress',
     updated_at: now,
   });
 
-  const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
-  const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
-  const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
+  if (!tokensAlreadyConsumed) {
+    const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
+    const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
+    const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
 
-  const consumeCode = await consumeModelLimits(model, {
-    modelRpm: modelRpmLimit,
-    modelRpd: modelRpdLimit,
-  });
+    const consumeCode = await consumeModelLimits(model, {
+      modelRpm: modelRpmLimit,
+      modelRpd: modelRpdLimit,
+    });
 
-  if (consumeCode === ConsumeCode.ModelRpmExceeded) {
-    const ttl = await redis.ttl(redisKeys.modelRpm(model));
-    const delayMs = Math.max(ttl, 1) * 1000;
-    await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
-    await job.moveToDelayed(Date.now() + delayMs, job.token);
-    return;
+    if (consumeCode === ConsumeCode.ModelRpmExceeded) {
+      const ttl = await redis.ttl(redisKeys.modelRpm(model));
+      const delayMs = Math.max(ttl, 1) * 1000;
+      await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
+      await job.moveToDelayed(Date.now() + delayMs, job.token);
+      return;
+    }
+
+    if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
+      const reason =
+        consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
+      // Do not retry these failures
+      throw new UnrecoverableError(reason);
+    }
+
+    await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
   }
-
-  if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
-    const reason =
-      consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
-    // не ретраїмо такі фейли
-    throw new UnrecoverableError(reason);
-  }
-
-  await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
 
   try {
     const result = await modelProvider.execute({
@@ -117,8 +117,6 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       mode: payload.mode,
       locale: payload.locale,
     });
-
-    await releaseWaitingCounter(model);
 
     const finishedAt = new Date().toISOString();
     const pipe = redis.pipeline();
@@ -134,6 +132,7 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
     });
     pipe.zrem(redisKeys.userActiveJobs(userId), jobId);
     await pipe.exec();
+    await redis.decrAndClampToZero([redisKeys.queueWaitingModel(model)]);
   } catch (err: any) {
     if (err?.retryable === false) {
       throw new UnrecoverableError(err?.message || 'provider_fatal_error');
@@ -235,8 +234,6 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
       await returnTokens(model);
     }
 
-    await releaseWaitingCounter(model);
-
     const reason = failedReason || 'provider_error';
     let errorCode = 'provider_error';
     if (reason === 'MODEL_RPD_EXCEEDED') errorCode = 'limit';
@@ -253,6 +250,9 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
       pipe.zrem(redisKeys.userActiveJobs(userId), jobId as string);
     }
     await pipe.exec();
+    if (model) {
+      await redis.decrAndClampToZero([redisKeys.queueWaitingModel(model)]);
+    }
   });
 };
 

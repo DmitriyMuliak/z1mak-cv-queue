@@ -17,7 +17,7 @@ interface RunAiJobBody {
   };
 }
 
-const CONCURRENCY_TTL_SECONDS = 1860; // ~31 хв, щоб слот не пропав до старту
+const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
 const MAX_WAIT_MINUTES = 30;
 const QUEUE_BUFFER = 0.9;
 const AVG_SECONDS = { hard: 25, lite: 15 };
@@ -27,6 +27,7 @@ const isHardMode = (mode: Mode) => mode.evaluationMode === 'byJob' && mode.depth
 enum AcquireCode {
   OK = 1,
   ConcurrencyExceeded = 0,
+  ModelRpdExceeded = -2,
   UserRpdExceeded = -4,
 }
 
@@ -59,7 +60,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
     const jobId = uuidv4();
     const now = Date.now();
     const todayPT = getCurrentDatePT();
-    const dayTtl = getSecondsUntilMidnightPT(); // TTL до 00:00 PT
+    const dayTtl = getSecondsUntilMidnightPT(); // TTL until 00:00 PT
     const modeType: 'hard' | 'lite' = isHardMode(body.payload.mode) ? 'hard' : 'lite';
 
     const chainFromMode = resolveModelChain(body.payload.mode);
@@ -91,8 +92,19 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         [
           redisKeys.userTypeRpd(body.userId, modeType, todayPT),
           redisKeys.userActiveJobs(body.userId),
+          redisKeys.modelRpd(candidate),
         ],
-        [userDayLimit, concurrencyLimit, dayTtl, CONCURRENCY_TTL_SECONDS, 1, now, jobId]
+        [
+          userDayLimit,
+          concurrencyLimit,
+          dayTtl,
+          CONCURRENCY_TTL_SECONDS,
+          1,
+          now,
+          jobId,
+          modelRpd,
+          dayTtl,
+        ]
       );
 
       if (code === AcquireCode.OK) {
@@ -100,6 +112,9 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         selectedModelRpm = modelRpm;
         selectedModelRpd = modelRpd;
         break;
+      }
+      if (code === AcquireCode.ModelRpdExceeded) {
+        continue;
       }
       if (code === AcquireCode.ConcurrencyExceeded) {
         return reply.status(429).send({ ok: false, error: 'CONCURRENCY_LIMIT' });

@@ -11,7 +11,8 @@ const MODEL_RELOAD_MS = 5 * 60 * 1000;
 const DB_SYNC_MS = 30 * 1000;
 const ORPHAN_CLEAN_MS = 60 * 60 * 1000;
 const EXPIRE_CHECK_MS = 60 * 1000;
-const EXPIRE_SLA_MS = 30 * 60 * 1000; // 30 хв очікування
+const EXPIRE_SLA_MS = 30 * 60 * 1000; // 30 minutes SLA for queue wait/active
+const MINUTE_TTL = 70;
 
 let modelTimer: NodeJS.Timeout | undefined;
 let syncTimer: NodeJS.Timeout | undefined;
@@ -107,6 +108,7 @@ const syncDbResults = async () => {
     for (let offset = 0; offset < keys.length; offset += chunkSize) {
       const slice = keys.slice(offset, offset + chunkSize);
       const rows: any[] = [];
+      const keysToDelete: Array<{ resultKey: string; metaKey: string }> = [];
       for (const resultKey of slice) {
         const jobId = resultKey.split(':')[1];
         const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
@@ -126,8 +128,7 @@ const syncDbResults = async () => {
           finished_at: result.finished_at || null,
           expired_at: result.expired_at || null,
         });
-
-        await redis.del(resultKey, redisKeys.jobMeta(jobId));
+        keysToDelete.push({ resultKey, metaKey: redisKeys.jobMeta(jobId) });
       }
 
       if (rows.length === 0) continue;
@@ -169,6 +170,12 @@ const syncDbResults = async () => {
         `,
         values
       );
+
+      const delPipeline = redis.pipeline();
+      for (const keyPair of keysToDelete) {
+        delPipeline.del(keyPair.resultKey, keyPair.metaKey);
+      }
+      await delPipeline.exec();
     }
   } finally {
     await client.release();
@@ -177,41 +184,16 @@ const syncDbResults = async () => {
 
 const cleanupOrphanLocks = async () => {
   const keys = await scanKeys('user:*:active_jobs');
+  if (keys.length === 0) return;
 
-  await Promise.all(
-    keys.map(async (key) => {
-      const jobs = await redis.zrange(key, 0, -1);
+  const now = Date.now();
+  const pipeline = redis.pipeline();
 
-      if (jobs.length === 0) return;
+  for (const key of keys) {
+    pipeline.zremrangebyscore(key, '-inf', now);
+  }
 
-      const pipeline = redis.pipeline();
-      const jobsToClean: string[] = [];
-
-      for (const jobId of jobs) {
-        pipeline.exists(redisKeys.jobResult(jobId));
-        jobsToClean.push(jobId);
-      }
-
-      const results = (await pipeline.exec()) ?? [];
-      const cleanPipeline = redis.pipeline();
-
-      for (let i = 0; i < results.length; i++) {
-        const [err, exists] = results[i];
-        if (err) {
-          console.error(
-            `Error checking job result existence for ${jobsToClean[i]}:`,
-            err
-          );
-          continue;
-        }
-        if (exists) {
-          cleanPipeline.zrem(key, jobsToClean[i]);
-        }
-      }
-
-      await cleanPipeline.exec();
-    })
-  );
+  await pipeline.exec();
 };
 
 const safeJsonParse = (val: string | undefined) => {
@@ -232,7 +214,8 @@ const expireStaleJobs = async () => {
   ];
 
   for (const { queue, type } of queues) {
-    const jobs = await queue.getJobs(['waiting', 'delayed'], 0, 500);
+    // 'active' need for case when worker fall down after consume limits but before failed/completed
+    const jobs = await queue.getJobs(['waiting', 'delayed', 'active'], 0, 500);
     for (const job of jobs) {
       if (!job) continue;
       const ageMs = now - (job.timestamp ?? now);
@@ -243,12 +226,29 @@ const expireStaleJobs = async () => {
       const model = data?.model;
       const jobId = job.id as string;
 
-      // Видаляємо з черги та виставляємо статус самостійно
-      await job.remove();
+      const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
+      const tokensConsumed = meta.tokens_consumed === 'true';
+      const modelForTokens = model || meta.processed_model || meta.requested_model;
+      const state = await job.getState();
+      const isActive = state === 'active';
+
+      // Remove only waiting/delayed jobs; leave active ones to avoid clashing with a running worker
+      if (!isActive) {
+        await job.remove();
+      }
+
+      // For stale active jobs only return limits and mark status; do not touch BullMQ job entry
+      if (tokensConsumed && modelForTokens) {
+        await redis.returnTokensAtomic(
+          [redisKeys.modelRpm(modelForTokens), redisKeys.modelRpd(modelForTokens), '__nil__'],
+          [1, MINUTE_TTL, dayTtl, 0]
+        );
+      }
 
       const finishedAt = new Date().toISOString();
       const updatedAt = finishedAt;
-      const waitingKey = model ? redisKeys.queueWaitingModel(model) : '__nil__';
+      const waitingKey =
+        !isActive && model ? redisKeys.queueWaitingModel(model) : '__nil__';
       const activeKey = userId ? redisKeys.userActiveJobs(userId) : '__nil__';
       const rpdKey = userId ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT()) : '__nil__';
 
@@ -266,7 +266,7 @@ const expireStaleJobs = async () => {
   }
 };
 
-// Для юніт-тестів
+// Exposed for unit tests
 export const __test = {
   reloadModelLimits,
   syncDbResults,

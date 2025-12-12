@@ -65,7 +65,7 @@ flowchart LR
 ### **1) HTTP API receive job**
 
 - Валідація payload, вибір моделі + fallback
-- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock
+- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock + модельний RPD pre-check
 - Backpressure: `queue:waiting:{model}` не перевищує динамічний maxQueueLength (~30 хв SLA) і не більше ніж model RPD
 - Запис job meta, enqueue у lite/hard
 
@@ -142,7 +142,7 @@ job:{id}:result
 ---
 
 # 🔥 4. Lua Скрипти (тезисно)
-- `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD; повертає код OK / CONCURRENCY / USER_RPD.
+- `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, перевіряє модельний RPD (без списання); повертає код OK / CONCURRENCY / USER_RPD / MODEL_RPD.
 - `consumeExecutionLimits`: атомарно перевіряє модельні RPM/RPD (і опційно user RPD), повертає коди для delay/fail; RPM → -1, RPD → -2/-3.
 
 ---

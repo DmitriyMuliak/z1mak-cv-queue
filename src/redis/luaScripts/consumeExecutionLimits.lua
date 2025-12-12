@@ -1,5 +1,5 @@
--- Purpose: перевірка та списання лише модельних лімітів (RPM/RPD).
--- User RPD споживається на API-шарі.
+-- Purpose: validate and consume only model limits (RPM/RPD).
+-- User RPD is consumed on the API layer.
 -- KEYS[1] = model:{modelId}:rpm
 -- KEYS[2] = model:{modelId}:rpd
 

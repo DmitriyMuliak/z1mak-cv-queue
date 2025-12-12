@@ -190,7 +190,7 @@ job:{id}:result
 
 # 🧠 8. **Lua Scripts (Atomic Enforcement, тезисно)**
 
-- `combinedCheckAndAcquire` (API): чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD; повертає код (OK / CONCURRENCY / USER_RPD).
+- `combinedCheckAndAcquire` (API): чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, робить pre-check модельного RPD (без списання); повертає код (OK / CONCURRENCY / USER_RPD / MODEL_RPD).
 - `consumeExecutionLimits` (Worker): атомарно перевіряє модельні RPM/RPD та (опційно) user RPD; при RPM повертає код для delay, при RPD — код для fail.
 
 ---

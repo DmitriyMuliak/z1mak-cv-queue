@@ -1,4 +1,4 @@
-// services/limitsPreloader.ts (Фінальна версія з Pipelining)
+// services/limitsPreloader.ts (Final version with pipelining)
 
 import type { Redis } from 'ioredis';
 import { supabaseClient } from '../db/client';
@@ -23,12 +23,12 @@ export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
     );
     rows = dbResult.rows;
   } catch (error) {
-    console.error('❌ Помилка при отриманні лімітів з user_limits DB:', error);
+    console.error('❌ Failed to fetch limits from user_limits DB:', error);
     return;
   }
 
   if (rows.length === 0) {
-    console.info('ℹ️ Не знайдено користувацьких лімітів для синхронізації.');
+    console.info('ℹ️ No user limits found to synchronize.');
     return;
   }
 
@@ -51,9 +51,9 @@ export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
     const successCount = results.filter(([err]) => err === null).length;
 
     console.log(
-      `✅ Успішно синхронізовано ліміти для ${successCount} з ${rows.length} користувачів через Pipelining.`
+      `✅ Successfully synchronized limits for ${successCount} of ${rows.length} users via pipelining.`
     );
   } catch (error) {
-    console.error('❌ Критична помилка виконання Redis Pipeline:', error);
+    console.error('❌ Critical error running Redis pipeline:', error);
   }
 };

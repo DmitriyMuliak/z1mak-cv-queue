@@ -4,8 +4,8 @@ import { luaScripts } from './scripts';
 
 export interface RedisWithScripts extends Redis {
   combinedCheckAndAcquire(
-    keys: [string, string],
-    args: [number, number, number, number, number, number, string]
+    keys: [string, string, string],
+    args: [number, number, number, number, number, number, string, number, number]
   ): Promise<number>;
 
   consumeExecutionLimits(
@@ -30,7 +30,7 @@ export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts 
   const client = new Redis(env.redisUrl, options);
 
   client.defineCommand('combinedCheckAndAcquire', {
-    numberOfKeys: 2,
+    numberOfKeys: 3,
     lua: luaScripts.combinedCheckAndAcquire,
   });
 
