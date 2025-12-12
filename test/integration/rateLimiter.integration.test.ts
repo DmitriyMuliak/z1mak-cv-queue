@@ -180,11 +180,12 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
       const second = await postJob(body);
       expect(second.status).toBe(429);
-      // QUEUE_FULL is hard to reproduce in this type of tests
       expect(second.json.error).toBe('MODEL_LIMIT');
     },
     
   );
+
+  it.todo('Add case for QUEUE_FULL status.(Its hard to reproduce in this type of tests)')
 
   it(
     'throttles user RPD',
