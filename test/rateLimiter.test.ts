@@ -148,14 +148,12 @@ describe('Rate limiter (model RPM/RPD)', () => {
     async () => {
       const modelId = 'flashLite';
       await seedModelLimits(redis, modelId, 100, 1); // RPD=1 => maxQueueLength=1
-      await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
+      await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 50 });
 
       const body = { ...createBody('lite'), userId: 'model-rpd-admin', role: 'admin' as const };
 
       const first = await postJob(body);
       expect(first.status).toBe(200);
-      const firstResult = await waitForJobResult(redis, first.json.jobId, 10_000);
-      expect(firstResult.status).toBe('completed');
 
       const second = await postJob(body);
       expect(second.status).toBe(429);
@@ -330,9 +328,20 @@ describe('Rate limiter (model RPM/RPD)', () => {
       expect(cached.lite_rpd).toBe('9');
       expect(cached.max_concurrency).toBe('2');
       expect(cached.unlimited).toBe('false');
-      expect(cached.unlimited).toBe('false');
     },
     
   );
 
+  it.todo(
+    'delays second job when model rpm is 1',
+  );
+
+  it.todo(
+    'fails on model RPD in worker even for admin',
+    
+  );
+
+  it.todo(
+    'applies the strictest of user RPD vs model RPD',
+  );
 });

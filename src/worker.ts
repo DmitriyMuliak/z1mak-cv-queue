@@ -1,4 +1,4 @@
-import { Worker, QueueEvents, Queue, Job } from 'bullmq';
+import { Worker, QueueEvents, Queue, Job, UnrecoverableError } from 'bullmq';
 import { redisKeys } from './redis/keys';
 import { env } from './config/env';
 import { createRedisClient } from './redis/client';
@@ -98,40 +98,34 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
     updated_at: now,
   });
 
+  const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
+  const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
+  const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
+
+  const consumeCode = await consumeModelLimits(model, userId, queueType, {
+    modelRpm: modelRpmLimit,
+    modelRpd: modelRpdLimit,
+    userRpd: 0, // user RPD спожито в API
+  });
+
+  if (consumeCode === ConsumeCode.ModelRpmExceeded) {
+    const ttl = await redis.ttl(redisKeys.modelRpm(model));
+    const delayMs = Math.max(ttl, 1) * 1000;
+    await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
+    await job.moveToDelayed(Date.now() + delayMs, job.token);
+    return;
+  }
+
+  if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
+    const reason =
+      consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
+    // не ретраїмо такі фейли
+    throw new UnrecoverableError(reason);
+  }
+
+  await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
+
   try {
-    const modelLimits = await redis.hgetall(redisKeys.modelLimits(model));
-    const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
-    const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
-
-    const consumeCode = await consumeModelLimits(model, userId, queueType, {
-      modelRpm: modelRpmLimit,
-      modelRpd: modelRpdLimit,
-      userRpd: 0, // user RPD спожито в API
-    });
-
-    
-
-    if (consumeCode === ConsumeCode.ModelRpmExceeded) {
-      const ttl = await redis.ttl(redisKeys.modelRpm(model));
-      const delayMs = Math.max(ttl, 1) * 1000;
-      await redis.hset(redisKeys.jobMeta(jobId), { status: 'queued' });
-      await job.moveToDelayed(Date.now() + delayMs);
-      
-      return;
-    }
-
-    if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
-      const reason =
-        consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
-      // не ретраїмо такі фейли
-      await job.discard();
-      const err = new Error(reason);
-      (err as any).error_code = consumeCode === ConsumeCode.ModelRpdExceeded ? 'limit' : 'expired';
-      throw err;
-    }
-
-    await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
-
     const result = await modelProvider.execute({
       model,
       cvDescription: payload.cvDescription,
@@ -140,21 +134,25 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       locale: payload.locale,
     });
 
-    await redis.hset(redisKeys.jobMeta(jobId), {
-      processed_model: result.usedModel,
-    });
+    await releaseWaitingCounter(model);
 
-    await redis.hset(redisKeys.jobResult(jobId), {
+    const finishedAt = new Date().toISOString();
+    const pipe = redis.pipeline();
+    pipe.hset(redisKeys.jobMeta(jobId), {
+      processed_model: result.usedModel,
+      status: 'completed',
+    });
+    pipe.hset(redisKeys.jobResult(jobId), {
       status: 'completed',
       data: result.text,
-      finished_at: new Date().toISOString(),
+      finished_at: finishedAt,
       used_model: result.usedModel,
     });
-
-  } catch (err: any & { retryable?: boolean }) {
-    // retryable — нехай BullMQ робить retry; неретрайбл — дискардамо, щоб не було повторних спроб
-    if (!err?.retryable) {
-      await job.discard();
+    pipe.zrem(redisKeys.userActiveJobs(userId), jobId);
+    await pipe.exec();
+  } catch (err: any) {
+    if (err?.retryable === false) {
+      throw new UnrecoverableError(err?.message || 'provider_fatal_error');
     }
     throw err;
   }

@@ -3,10 +3,10 @@
 Цей сервіс — це ядро системи виконання AI-аналізу.
 Він обробляє задачі з урахуванням:
 
-- модельних лімітів (RPM / RPD)
-- лімітів користувачів (daily RPD)
-- одночасних задач (concurrency)
-- fallback моделей
+- модельних лімітів (RPM / RPD) — застосовує воркер
+- лімітів користувачів (daily RPD) + concurrency — застосовує API через Lua
+- backpressure по моделі (queue:waiting + динамічний maxQueueLength)
+- fallback моделей (до enqueue)
 - retry (BullMQ-native)
 - atomic Redis Lua scripts
 - durable job result state
@@ -26,10 +26,9 @@
 4. Lua скрипти (atomic)
 5. HTTP API (Fastify)
 6. Worker pipeline
-7. Worker fallback FSM
-8. Cron tasks
-9. Health check
-10. Graceful shutdown
+7. Cron tasks
+8. Health check
+9. Graceful shutdown
 
 ---
 
@@ -41,15 +40,21 @@ flowchart LR
     Client --> Next[Next.js App]
     Next --> API[Jobs API Server]
 
-    API --> Lua[Redis Lua Checks]
+    API --> Lua[Redis Lua: user RPD + concurrency]
+    API --> BP[Backpressure per model]
     Lua --> Redis[(Redis)]
+    BP --> Redis
 
-    API --> Queue[BullMQ Queue]
+    API --> QueueLite[Queue: lite]
+    API --> QueueHard[Queue: hard]
 
-    Queue --> Worker[Worker Pool]
+    QueueLite --> Worker[Worker Pool]
+    QueueHard --> Worker
+    Worker --> Limits[Model RPM/RPD]
+    Limits --> Redis
     Worker --> Result[Redis Job Result]
 
-    Result --> Sync[DB Sync Cron]
+    Result --> Sync[DB Sync Cron + cleanup]
     Sync --> DB[(Database)]
 ```
 
@@ -59,15 +64,22 @@ flowchart LR
 
 ### **1) HTTP API receive job**
 
-```
-Client → Next.js → Jobs API → Lua → Redis → Queue
-```
+- Валідація payload, вибір моделі + fallback
+- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock
+- Backpressure: `queue:waiting:{model}` не перевищує динамічний maxQueueLength (~30 хв SLA)
+- Запис job meta, enqueue у lite/hard
 
 ### **2) Worker execution**
 
-```
-Queue → Worker → AI Model → Redis Result
-```
+- Lua `consumeExecutionLimits`: модельні RPM/RPD (user RPD=0, бо списано в API)
+- Якщо RPM перевищено — delayed; якщо RPD перевищено — fail
+- Виклик AI, запис результату, зняття лічильників/локів
+
+### **3) Cron**
+
+- SCAN job:*:result → батч upsert у БД, видалення ключів
+- cleanup orphan locks
+- expireStaleJobs (довгі waiting/delayed → expired, зняття лічильників)
 
 ### **3) DB sync**
 
@@ -211,38 +223,16 @@ return 1
 
 ---
 
-# ⚙️ 6. Worker Logic
+# ⚙️ 6. Worker Logic (high level)
 
-```ts
-try {
-  const result = await callModel(payload);
-
-  await redis.hset(`job:${id}:result`, {
-    status: 'completed',
-    data: JSON.stringify(result),
-    finished_at: nowUTC(),
-  });
-
-  await removeLock(userId, id);
-} catch (err) {
-  if (err.status === 429 || err.status >= 500) {
-    await job.moveToDelayed(Date.now() + 5000);
-    return;
-  }
-
-  await redis.hset(`job:${id}:result`, {
-    status: 'failed',
-    error: err.message,
-    finished_at: nowUTC(),
-  });
-
-  await removeLock(userId, id);
-}
-```
+- consume модельні RPM/RPD (Lua `consumeExecutionLimits`)
+- retryable помилки → BullMQ retry/delay
+- non-retryable/ліміти → failed, повернення токенів, зняття локів
+- release waiting counter / active_jobs
 
 ---
 
-# 🔁 7. Worker-Level Fallback Diagram
+# 🔁 7. Worker-Level Diagram
 
 ```mermaid
 flowchart TD
