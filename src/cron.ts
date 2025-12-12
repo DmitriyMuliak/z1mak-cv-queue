@@ -246,47 +246,22 @@ const expireStaleJobs = async () => {
       // Видаляємо з черги та виставляємо статус самостійно
       await job.remove();
 
-      const pipeline = redis.pipeline();
+      const finishedAt = new Date().toISOString();
+      const updatedAt = finishedAt;
+      const waitingKey = model ? redisKeys.queueWaitingModel(model) : '__nil__';
+      const activeKey = userId ? redisKeys.userActiveJobs(userId) : '__nil__';
+      const rpdKey = userId ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT()) : '__nil__';
 
-      if (model) {
-        pipeline.decr(redisKeys.queueWaitingModel(model));
-      }
-
-      if (userId) {
-        const rpdKey = redisKeys.userTypeRpd(userId, type, getCurrentDatePT());
-        pipeline.zrem(redisKeys.userActiveJobs(userId), jobId);
-        pipeline.decr(rpdKey);
-        pipeline.expire(rpdKey, dayTtl);
-      }
-
-      pipeline.hset(redisKeys.jobResult(jobId), {
-        status: 'failed',
-        error: 'expired',
-        error_code: 'expired',
-        finished_at: new Date().toISOString(),
-        expired_at: new Date().toISOString(),
-      });
-      pipeline.hset(redisKeys.jobMeta(jobId), {
-        status: 'failed',
-        updated_at: new Date().toISOString(),
-      });
-
-      await pipeline.exec();
-
-      if (model) {
-        const current = await redis.get(redisKeys.queueWaitingModel(model));
-        if (current && Number(current) < 0) {
-          await redis.set(redisKeys.queueWaitingModel(model), 0);
-        }
-      }
-      if (userId) {
-        const rpdKey = redisKeys.userTypeRpd(userId, type, getCurrentDatePT());
-        const rpdVal = await redis.get(rpdKey);
-        if (rpdVal && Number(rpdVal) < 0) {
-          await redis.set(rpdKey, 0);
-          await redis.expire(rpdKey, dayTtl);
-        }
-      }
+      await redis.expireStaleJob(
+        [
+          waitingKey,
+          activeKey,
+          rpdKey,
+          redisKeys.jobResult(jobId),
+          redisKeys.jobMeta(jobId),
+        ],
+        [dayTtl, finishedAt, updatedAt, 'failed', 'expired', 'expired', jobId]
+      );
     }
   }
 };

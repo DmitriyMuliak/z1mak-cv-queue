@@ -204,6 +204,38 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
       return next;
     }
 
+    expireStaleJob(
+      keys: [string, string, string, string, string],
+      args: [number, string, string, string, string, string, string]
+    ) {
+      const [waitingKey, activeKey, rpdKey, resultKey, metaKey] = keys;
+      const [dayTtl, finishedAt, updatedAt, status, err, errCode, jobId] = args;
+
+      const decrClamp = (key: string) => {
+        if (!key || key === '__nil__') return;
+        const next = this.decr(key);
+        if (next < 0) this.set(key, 0);
+      };
+
+      decrClamp(waitingKey);
+      if (activeKey && activeKey !== '__nil__' && jobId) {
+        this.zrem(activeKey, jobId);
+      }
+      if (rpdKey && rpdKey !== '__nil__') {
+        decrClamp(rpdKey);
+        if (dayTtl > 0) this.expire(rpdKey, Number(dayTtl));
+      }
+
+      this.hset(resultKey, {
+        status,
+        error: err,
+        error_code: errCode,
+        finished_at: finishedAt,
+        expired_at: finishedAt,
+      });
+      this.hset(metaKey, { status, updated_at: updatedAt });
+    }
+
     pipeline() {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       const self = this;

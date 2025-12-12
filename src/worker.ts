@@ -4,7 +4,7 @@ import { redisChannels } from './redis/channels';
 import { env } from './config/env';
 import { createRedisClient } from './redis/client';
 import { ModelProviderService } from './ai/ModelProviderService';
-import { getSecondsUntilMidnightPT, getCurrentDatePT } from './utils/time';
+import { getSecondsUntilMidnightPT } from './utils/time';
 import type { Mode } from '../types/mode';
 
 type ModeType = 'hard' | 'lite';
@@ -49,46 +49,27 @@ const queueEvents = {
   hard: new QueueEvents(env.queueHardName, { connection: { url: env.redisUrl } }),
 };
 
-const removeLock = async (userId: string, jobId: string) => {
-  await redis.zrem(redisKeys.userActiveJobs(userId), jobId);
-};
-
 const releaseWaitingCounter = async (model: string) => {
   const key = redisKeys.queueWaitingModel(model);
-  const current = await redis.decr(key);
-  if (current && current < 0) {
-    await redis.set(key, 0);
-  }
+  await redis.decrAndClampToZero([key]);
 };
 
 const returnTokens = async (model: string) => {
   const dayTtl = getSecondsUntilMidnightPT();
-  const pipeline = redis.pipeline();
-
-  pipeline.decrby(redisKeys.modelRpm(model), 1);
-  pipeline.expire(redisKeys.modelRpm(model), MINUTE_TTL);
-
-  pipeline.decrby(redisKeys.modelRpd(model), 1);
-  pipeline.expire(redisKeys.modelRpd(model), dayTtl);
-
-  await pipeline.exec();
+  await redis.returnTokensAtomic(
+    [redisKeys.modelRpm(model), redisKeys.modelRpd(model), '__nil__'],
+    [1, MINUTE_TTL, dayTtl, 0]
+  );
 };
 
 const consumeModelLimits = async (
   model: string,
-  userId: string,
-  modeType: ModeType,
-  limits: { modelRpm: number; modelRpd: number; userRpd: number }
+  limits: { modelRpm: number; modelRpd: number; }
 ): Promise<number> => {
   const dayTtl = getSecondsUntilMidnightPT();
-  const userDayTtl = dayTtl;
   return redis.consumeExecutionLimits(
-    [
-      redisKeys.modelRpm(model),
-      redisKeys.modelRpd(model),
-      redisKeys.userTypeRpd(userId, modeType, getCurrentDatePT()),
-    ],
-    [limits.modelRpm, limits.modelRpd, limits.userRpd, MINUTE_TTL, dayTtl, userDayTtl, 1]
+    [redisKeys.modelRpm(model), redisKeys.modelRpd(model)],
+    [limits.modelRpm, limits.modelRpd, MINUTE_TTL, dayTtl, 1]
   );
 };
 
@@ -106,10 +87,9 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   const modelRpmLimit = Number(modelLimits?.rpm ?? 0);
   const modelRpdLimit = Number(modelLimits?.rpd ?? 0);
 
-  const consumeCode = await consumeModelLimits(model, userId, queueType, {
+  const consumeCode = await consumeModelLimits(model, {
     modelRpm: modelRpmLimit,
     modelRpd: modelRpdLimit,
-    userRpd: 0, // user RPD спожито в API
   });
 
   if (consumeCode === ConsumeCode.ModelRpmExceeded) {
@@ -255,10 +235,6 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
       await returnTokens(model);
     }
 
-    if (userId) {
-      await removeLock(userId, jobId as string);
-    }
-
     await releaseWaitingCounter(model);
 
     const reason = failedReason || 'provider_error';
@@ -266,12 +242,17 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
     if (reason === 'MODEL_RPD_EXCEEDED') errorCode = 'limit';
     if (reason === 'USER_RPD_EXCEEDED') errorCode = 'expired';
 
-    await redis.hset(redisKeys.jobResult(jobId as string), {
+    const pipe = redis.pipeline();
+    pipe.hset(redisKeys.jobResult(jobId as string), {
       status: 'failed',
       error: reason,
       error_code: errorCode,
       finished_at: new Date().toISOString(),
     });
+    if (userId) {
+      pipe.zrem(redisKeys.userActiveJobs(userId), jobId as string);
+    }
+    await pipe.exec();
   });
 };
 

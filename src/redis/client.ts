@@ -9,9 +9,21 @@ export interface RedisWithScripts extends Redis {
   ): Promise<number>;
 
   consumeExecutionLimits(
-    keys: [string, string, string],
-    args: [number, number, number, number, number, number, number]
+    keys: [string, string],
+    args: [number, number, number, number, number]
   ): Promise<number>;
+
+  returnTokensAtomic(
+    keys: [string, string, string],
+    args: [number, number, number, number]
+  ): Promise<[number | null, number | null, number | null]>;
+
+  expireStaleJob(
+    keys: [string, string, string, string, string],
+    args: [number, string, string, string, string, string, string]
+  ): Promise<number>;
+
+  decrAndClampToZero(keys: [string]): Promise<number>;
 }
 
 export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts => {
@@ -23,8 +35,23 @@ export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts 
   });
 
   client.defineCommand('consumeExecutionLimits', {
-    numberOfKeys: 3,
+    numberOfKeys: 2,
     lua: luaScripts.consumeExecutionLimits,
+  });
+
+  client.defineCommand('returnTokensAtomic', {
+    numberOfKeys: 3,
+    lua: luaScripts.returnTokensAtomic,
+  });
+
+  client.defineCommand('expireStaleJob', {
+    numberOfKeys: 5,
+    lua: luaScripts.expireStaleJob,
+  });
+
+  client.defineCommand('decrAndClampToZero', {
+    numberOfKeys: 1,
+    lua: luaScripts.decrAndClampToZero,
   });
 
   return client as RedisWithScripts;
