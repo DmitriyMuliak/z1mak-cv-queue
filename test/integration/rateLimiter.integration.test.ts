@@ -14,6 +14,7 @@ import {
   redisKeys,
   RunBody,
 } from '../utils/rateTestUtils';
+import { getCurrentDatePT } from '../../src/utils/time';
 
 const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => {
   const res = await postJob(body);
@@ -21,6 +22,28 @@ const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => 
     await waitForProcessedModel(redis, res.json.jobId, timeoutMs);
   }
   return res;
+};
+
+const parallelCalls = async <T>(count: number, fn: (i: number) => Promise<T>) => {
+  const jobs: Array<Promise<T>> = [];
+  for (let i = 0; i < count; i++) {
+    jobs.push(fn(i));
+  }
+  return Promise.all(jobs);
+};
+
+const runInBatches = async <T>(
+  total: number,
+  batchSize: number,
+  fn: (i: number) => Promise<T>
+) => {
+  const results: T[] = [];
+  for (let offset = 0; offset < total; offset += batchSize) {
+    const current = Math.min(batchSize, total - offset);
+    const batch = parallelCalls(current, (idx) => fn(offset + idx));
+    results.push(...(await batch));
+  }
+  return results;
 };
 
 describe('Rate limiter (model RPM/RPD)', () => {
@@ -234,12 +257,94 @@ describe('Rate limiter (model RPM/RPD)', () => {
       const body = createBody('lite');
       body.userId = 'rpd-consumed';
 
-      await redis.incr(redisKeys.userTypeRpd(body.userId, 'lite', '2023-01-01'));
+      const todayPt = getCurrentDatePT();
+      await redis.incr(redisKeys.userTypeRpd(body.userId, 'lite', todayPt));
 
       const res = await enqueueAndWait(body, redis);
       expect(res.status).toBe(429);
       expect(res.json.error).toBe('USER_RPD_LIMIT');
     },
     
+  );
+
+  it(
+    'accepts burst even when model RPM is low (worker will throttle)',
+    async () => {
+      await seedModelLimits(redis, 'flashLite', 100, 10000);
+      const body = { ...createBody('lite'), userId: 'burst-admin', role: 'admin' as const };
+
+      const results = await parallelCalls(5, () => postJob(body));
+      expect(results.every((r) => r.status === 200)).toBe(true);
+    },
+    
+  );
+
+  it(
+    'enforces user RPD with many parallel calls',
+    async () => {
+      await seedModelLimits(redis, 'flashLite', 10_000, 10_000); // high model limits
+      await redis.hset(redisKeys.userLimits('burst-user'), {
+        role: 'user',
+        hard_rpd: 5,
+        lite_rpd: 5,
+        max_concurrency: 50,
+        unlimited: 'false',
+      });
+
+      const base = createBody('lite');
+      base.userId = 'burst-user';
+
+      const results = await parallelCalls(20, () => postJob(base));
+      const successes = results.filter((r) => r.status === 200);
+      const failures = results.filter((r) => r.status === 429);
+
+      expect(successes.length).toBe(5);
+      expect(failures.length).toBe(15);
+      expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT')).toBe(true);
+    },
+    
+  );
+
+  it(
+    'enforces user max_concurrency on burst',
+    async () => {
+      await seedModelLimits(redis, 'flashLite', 10_000, 10_000);
+      await redis.hset(redisKeys.userLimits('conc-user'), {
+        role: 'user',
+        hard_rpd: 10_000,
+        lite_rpd: 10_000,
+        max_concurrency: 2,
+        unlimited: 'false',
+      });
+
+      const base = createBody('lite');
+      base.userId = 'conc-user';
+
+      const results = await parallelCalls(10, () => postJob(base));
+      const successes = results.filter((r) => r.status === 200);
+      const failures = results.filter((r) => r.status === 429);
+
+      expect(successes.length).toBeLessThanOrEqual(2);
+      expect(failures.length).toBeGreaterThanOrEqual(8);
+      expect(failures.every((r) => r.json.error === 'CONCURRENCY_LIMIT')).toBe(true);
+    },
+    
+  );
+
+  it(
+    'accepts many users without MODEL_LIMIT/User RPD rejections',
+    async () => {
+      await seedModelLimits(redis, 'flashLite', 100, 10000);
+      const results = await runInBatches(200, 50, (i) =>
+        postJob({ ...createBody('lite'), userId: `user-${i}`, role: 'admin' })
+      );
+      const failures = results.filter((r) => r.status !== 200);
+      expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
+      expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT')).toBe(true);
+      // допускаємо QUEUE_FULL через backpressure (~108 для rpm=100, avg=15s)
+      const successes = results.filter((r) => r.status === 200);
+      expect(successes.length).toBeGreaterThan(90);
+      expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);
+    },
   );
 });

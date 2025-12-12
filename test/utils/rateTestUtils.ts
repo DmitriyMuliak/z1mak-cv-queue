@@ -146,6 +146,7 @@ export const waitForProcessedModel = async (
 
 export const startCompose = async () => {
   if (!usingCompose) return;
+
   // For local debug:
   // START
   // First shell
