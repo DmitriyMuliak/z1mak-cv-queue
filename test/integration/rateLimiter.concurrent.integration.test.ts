@@ -10,7 +10,7 @@ import {
   stopCompose,
   waitForApi,
   redisKeys,
-} from './utils/rateTestUtils';
+} from '../utils/rateTestUtils';
 
 const parallelCalls = async <T>(count: number, fn: (i: number) => Promise<T>) => {
   const jobs: Array<Promise<T>> = [];

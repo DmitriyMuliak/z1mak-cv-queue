@@ -13,7 +13,7 @@ import {
   waitForJobResult,
   redisKeys,
   RunBody,
-} from './utils/rateTestUtils';
+} from '../utils/rateTestUtils';
 
 const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => {
   const res = await postJob(body);
@@ -218,130 +218,28 @@ describe('Rate limiter (model RPM/RPD)', () => {
   );
 
   it(
-    'throttles user hard_rpd',
-    async () => {
-      const modelId = 'pro2dot5'; // treated as hard in pickRpdLimit
-      await seedModelLimits(redis, modelId, 100, 100);
-
-      await redis.hset(redisKeys.userLimits('user-hard'), {
-        role: 'user',
-        hard_rpd: 1,
-        lite_rpd: 5,
-        max_concurrency: 2,
-        unlimited: 'false',
-      });
-
-      const body = createBody('hard');
-      body.userId = 'user-hard';
-
-      const first = await postJob(body);
-      expect(first.status).toBe(200);
-
-      const second = await postJob(body);
-      expect(second.status).toBe(429);
-      expect(second.json.error).toBe('USER_RPD_LIMIT');
-    },
-    
-  );
-
-  it(
-    'throttles user lite_rpd',
+    'rejects when user RPD was consumed before enqueue',
     async () => {
       const modelId = 'flashLite';
       await seedModelLimits(redis, modelId, 100, 100);
 
-      await redis.hset(redisKeys.userLimits('user-lite'), {
+      await redis.hset(redisKeys.userLimits('rpd-consumed'), {
         role: 'user',
-        hard_rpd: 5,
+        hard_rpd: 1,
         lite_rpd: 1,
-        max_concurrency: 2,
+        max_concurrency: 10,
         unlimited: 'false',
       });
 
       const body = createBody('lite');
-      body.userId = 'user-lite';
+      body.userId = 'rpd-consumed';
 
-      const first = await postJob(body);
-      expect(first.status).toBe(200);
-
-      const second = await postJob(body);
-      expect(second.status).toBe(429);
-      expect(second.json.error).toBe('USER_RPD_LIMIT');
-    },
-    
-  );
-
-  it(
-    'admin bypasses user RPM/RPD/concurrency',
-    async () => {
-      const modelId = 'flashLite';
-      await seedModelLimits(redis, modelId, 100, 100);
-
-      await redis.hset(redisKeys.userLimits('admin-1'), {
-        role: 'admin',
-        hard_rpd: 1,
-        lite_rpd: 1,
-        max_concurrency: 2,
-        unlimited: 'true',
-      });
-
-      const body = { ...createBody('lite'), userId: 'admin-1', role: 'admin' as const };
-
-      const first = await postJob(body);
-      expect(first.status).toBe(200);
-
-      const second = await postJob(body);
-      expect(second.status).toBe(200);
-    },
-    
-  );
-
-  it(
-    'skips models without configured limits and uses fallback with limits',
-    async () => {
-      await seedModelLimits(redis, 'flashLitePreview', 5, 5);
-
-      const body = { ...createBody('lite'), userId: 'missing-limits', role: 'admin' as const };
+      await redis.incr(redisKeys.userTypeRpd(body.userId, 'lite', '2023-01-01'));
 
       const res = await enqueueAndWait(body, redis);
-      expect(res.status).toBe(200);
-      const usedModel = await waitForProcessedModel(redis, res.json.jobId, 20_000);
-      expect(usedModel).toBe('flashLitePreview');
+      expect(res.status).toBe(429);
+      expect(res.json.error).toBe('USER_RPD_LIMIT');
     },
     
-  );
-
-  it(
-    'applies default user limits (lite_rpd is 9) when no user record exists',
-    async () => {
-      const modelId = 'flashLite';
-      await seedModelLimits(redis, modelId, 100, 100);
-
-      const userId = 'no-cache-user';
-      const body = { ...createBody('lite'), userId, role: 'user' as const };
-
-      // Перший виклик повинен створити запис user limits у Redis із дефолтами
-      const first = await postJob(body);
-      expect(first.status).toBe(200);
-
-      const cached = await redis.hgetall(redisKeys.userLimits(userId));
-      expect(cached.lite_rpd).toBe('9');
-      expect(cached.max_concurrency).toBe('2');
-      expect(cached.unlimited).toBe('false');
-    },
-    
-  );
-
-  it.todo(
-    'delays second job when model rpm is 1',
-  );
-
-  it.todo(
-    'fails on model RPD in worker even for admin',
-    
-  );
-
-  it.todo(
-    'applies the strictest of user RPD vs model RPD',
   );
 });

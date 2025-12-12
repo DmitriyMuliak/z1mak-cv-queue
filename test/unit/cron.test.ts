@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { redisKeys } from '../src/redis/keys';
-import { getCurrentDatePT } from '../src/utils/time';
+import { redisKeys } from '../../src/redis/keys';
+import { getCurrentDatePT } from '../../src/utils/time';
 
-vi.mock('../src/redis/client', () => ({
+vi.mock('../../src/redis/client', () => ({
   createRedisClient: () => fakeRedis,
 }));
 
-vi.mock('../src/db/client', () => ({
+vi.mock('../../src/db/client', () => ({
   supabaseClient: supabaseClientMock,
 }));
 
@@ -23,7 +23,7 @@ vi.mock('bullmq', () => {
 });
 
 // Import after mocks
-import { __test } from '../src/cron';
+import { __test } from '../../src/cron';
 
 describe('cron logic', () => {
   beforeEach(() => {
@@ -204,66 +204,66 @@ const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoi
       return next;
     }
 
-    expire(key: string, seconds: number) {
-      this.expirations.set(key, seconds);
+    pipeline() {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self = this;
+      const ops: Array<[null, any]> = []; // first item is error
+      const chain = {
+        hset(key: string, values: Record<string, string | number | null | undefined>) {
+          self.hset(key, values);
+          ops.push([null, 'OK']);
+          return chain;
+        },
+        exists(key: string) {
+          const exists = self.exists(key);
+          ops.push([null, exists]);
+          return chain;
+        },
+        decr(key: string) {
+          const val = self.decr(key);
+          ops.push([null, val]);
+          return chain;
+        },
+        zrem(key: string, member: string) {
+          const res = self.zrem(key, member);
+          ops.push([null, res]);
+          return chain;
+        },
+        expire(key: string, ttl: number) {
+          self.expire(key, ttl);
+          ops.push([null, 1]);
+          return chain;
+        },
+        exec: async () => ops,
+      };
+      return chain;
     }
 
-    pipeline() {
-      const ops: Array<() => [null, number]> = [];
-      const pipe = {
-        exists: (key: string) => {
-          ops.push(() => [null, this.exists(key)]);
-          return pipe;
-        },
-        zrem: (key: string, member: string) => {
-          ops.push(() => [null, this.zrem(key, member)]);
-          return pipe;
-        },
-        hset: (key: string, values: Record<string, string>) => {
-          ops.push(() => {
-            this.hset(key, values);
-            return [null, 1];
-          });
-          return pipe;
-        },
-        decr: (key: string) => {
-          ops.push(() => {
-            const val = this.decr(key);
-            return [null, val];
-          });
-          return pipe;
-        },
-        expire: (key: string, seconds: number) => {
-          ops.push(() => {
-            this.expire(key, seconds);
-            return [null, 1];
-          });
-          return pipe;
-        },
-        exec: async () => ops.map((fn) => fn()),
-      };
-      return pipe;
+    expire(key: string, ttl: number) {
+      this.expirations.set(key, ttl);
     }
   }
 
   const fakeRedis = new FakeRedis();
+
   const supabaseQueries: any[] = [];
-  const createdQueues: any[] = [];
   const supabaseClientMock = {
     isMock: false,
-    query: vi.fn(),
-    connect: vi.fn(async () => {
-      return {
-        query: vi.fn((...args: any[]) => {
-          supabaseQueries.push(args);
-          return { rows: [] };
-        }),
-        release: vi.fn(),
-      };
+    query: async (sql: string, params: unknown[] = []) => {
+      supabaseQueries.push([sql, params]);
+      return { rows: [] };
+    },
+    connect: async () => ({
+      query: async (sql: string, params: unknown[] = []) => {
+        supabaseQueries.push([sql, params]);
+        return { rows: [] };
+      },
+      release: async () => {},
     }),
-    end: vi.fn(),
+    end: async () => {},
   };
+
+  const createdQueues: any[] = [];
 
   return { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues };
 });
-
