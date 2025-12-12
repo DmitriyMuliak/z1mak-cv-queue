@@ -61,6 +61,7 @@ flowchart TD
 | **Token Return**                  | Модельні токени повертаються при фінальному фейлі/відпрацюванні QueueEvents           |
 | **DB Persistence**                | Жодна job не губиться                                                                 |
 | **Zero Downtime Reconfiguration** | Model limits hot-reload                                                               |
+| **Dynamic Worker Concurrency**    | Конкурентність воркерів читається з Redis, оновлюється через Pub/Sub + admin endpoint |
 | **Scalability**                   | До 20–50k RPS без великих змін                                                        |
 | **Fault Tolerance**               | Worker crash → job requeued, lock auto-expire                                         |
 
@@ -187,34 +188,20 @@ job:{id}:result
 
 ---
 
-# 🧠 8. **Lua Scripts (Atomic Enforcement)**
+# 🧠 8. **Lua Scripts (Atomic Enforcement, тезисно)**
 
-## 8.1 combinedCheckAndAcquire (API: user RPD + concurrency)
-
-```lua
--- KEYS[1]=user:rpd:{type}:{date}, KEYS[2]=user:active_jobs
--- ARGV: user_day_limit, concurrency_limit, day_ttl, lock_ttl, consume, now_ms, jobId
-redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now_ms)
-if concurrency_limit > 0 and redis.call('ZCARD', KEYS[2]) >= concurrency_limit then return 0 end
-if user_day_limit > 0 and getOrZero(KEYS[1]) + consume > user_day_limit then return -4 end
-if concurrency_limit > 0 then redis.call('ZADD', KEYS[2], now_ms + lock_ttl*1000, jobId) end
-if user_day_limit > 0 then redis.call('INCRBY', KEYS[1], consume); redis.call('EXPIRE', KEYS[1], day_ttl) end
-return 1
-```
-
-## 8.2 consumeExecutionLimits (Worker: model RPM/RPD, optional user RPD)
-
-RPM → -1, RPD → -2, user RPD → -3, інакше 1; при перевищенні RPM воркер ставить delayed на TTL ключа.
+- `combinedCheckAndAcquire` (API): чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD; повертає код (OK / CONCURRENCY / USER_RPD).
+- `consumeExecutionLimits` (Worker): атомарно перевіряє модельні RPM/RPD та (опційно) user RPD; при RPM повертає код для delay, при RPD — код для fail.
 
 ---
 
-# 🏗️ 9. **Worker Execution Pipeline** (Виправлено)
+# 🏗️ 9. **Worker Execution Pipeline** (актуальна)
 
 1.  Позначає job “in_progress” (`job:meta`).
 2.  Викликає **`ModelProviderService.execute`** (виконує лише одну модель).
 3.  Якщо **успіх** → записує результат (`job:result`) та **видаляє concurrency lock**.
-4.  Якщо **429/5xx (retryable)** → кидає виняток, **BullMQ** ставить job на **delayed retry**.
-5.  Якщо **не-retryable (4xx) або вичерпано спроби** → BullMQ переводить у `failed`.
+4.  Якщо **retryable (500/503/504/інші тимчасові)** → кидає виняток, **BullMQ** робить backoff retry (attempts=2).
+5.  Якщо **не-retryable (400/403/404/429/500 context-too-long)** → `UnrecoverableError` → BullMQ ставить `failed` одразу.
 6.  **`queueEvents.on('failed')`** спрацьовує → **повертає токени** (`returnTokens`) та записує фінальний статус `failed`.
 
 ---
@@ -254,8 +241,8 @@ Guarantees:
 
 | Stage      | Architecture                                       |
 | :--------- | :------------------------------------------------- |
-| 1–5k RPS   | Single Redis, 1 queue                              |
-| 5–20k RPS  | Single Redis, 1 BullMQ Queue, N Workers            |
+| 1–5k RPS   | Single Redis, 2 queues (lite/hard)                 |
+| 5–20k RPS  | Single Redis, 2 BullMQ Queues, N Workers           |
 | 20–50k RPS | Single Redis (bigger) or Dragonfly, queue sharding |
 | 50k+ RPS   | Dragonfly or Redis Cluster (optional)              |
 | 150k+ RPS  | Redis Cluster (true distributed limits)            |

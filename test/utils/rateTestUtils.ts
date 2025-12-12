@@ -97,7 +97,7 @@ export const waitForApi = async (retries = 60) => {
 };
 
 export const postJob = async (body: RunBody) =>
-  requestApi('/run-ai-job', 'POST', body, {
+  requestApi('/resume/analyze', 'POST', body, {
     'Content-Type': 'application/json',
     'x-internal-api-key': INTERNAL_KEY,
   });

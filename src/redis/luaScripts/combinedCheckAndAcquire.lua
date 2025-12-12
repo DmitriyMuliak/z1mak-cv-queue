@@ -1,4 +1,3 @@
-
 -- KEYS[1] = user:{userId}:rpd:{type}:{DATE}
 -- KEYS[2] = user:{userId}:active_jobs
 
@@ -24,7 +23,7 @@ local consume = tonumber(ARGV[5])
 local now_ms = tonumber(ARGV[6])
 local expiry_ms = now_ms + lock_ttl * 1000
 
--- 1. Cleanup Zombie Locks
+-- 1. Cleanup zombie locks
 redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now_ms)
 
 -- 2. Concurrency gate
@@ -41,7 +40,7 @@ if user_day_limit > 0 and (user_day + consume) > user_day_limit then
   return -4 -- USER_RPD_EXCEEDED
 end
 
--- 4. Acquire locks/counters
+-- 4. Acquire
 if concurrency_limit > 0 then
   redis.call('ZADD', KEYS[2], expiry_ms, ARGV[7])
 end

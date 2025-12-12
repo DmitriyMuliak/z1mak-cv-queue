@@ -66,7 +66,7 @@ flowchart LR
 
 - Валідація payload, вибір моделі + fallback
 - Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock
-- Backpressure: `queue:waiting:{model}` не перевищує динамічний maxQueueLength (~30 хв SLA)
+- Backpressure: `queue:waiting:{model}` не перевищує динамічний maxQueueLength (~30 хв SLA) і не більше ніж model RPD
 - Запис job meta, enqueue у lite/hard
 
 ### **2) Worker execution**
@@ -86,6 +86,12 @@ flowchart LR
 ```
 Redis Results → Batch Cron → DB
 ```
+
+### **4) Динамічний concurrency воркерів**
+
+- Поточні значення читаються з Redis `config:worker:{lite|hard}:concurrency`.
+- Адмін може оновити через `/admin/worker-concurrency`; воркери одразу підхоплюють через Pub/Sub `config:update`.
+- Дефолти: lite=8, hard=3 (якщо ключі відсутні).
 
 ---
 
@@ -130,33 +136,14 @@ job:{id}:result
   error
   finished_at
   data
+  used_model
 ```
 
 ---
 
-# 🔥 4. Lua Скрипти
-
-## Concurrency Check (atomic)
-
-```lua
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-local count = redis.call('ZCARD', KEYS[1])
-if count >= tonumber(ARGV[3]) then return 0 end
-local expiry = tonumber(ARGV[1]) + tonumber(ARGV[2])
-redis.call('ZADD', KEYS[1], expiry, ARGV[4])
-return 1
-```
-
-## User RPD Check
-
-```lua
-local current = redis.call('HGET', KEYS[1], 'used_rpd')
-if not current then current = 0 else current = tonumber(current) end
-if current + tonumber(ARGV[1]) > tonumber(ARGV[2]) then return 0 end
-redis.call('HINCRBY', KEYS[1], 'used_rpd', ARGV[1])
-redis.call('HSET', KEYS[1], 'updated_at', ARGV[3])
-return 1
-```
+# 🔥 4. Lua Скрипти (тезисно)
+- `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD; повертає код OK / CONCURRENCY / USER_RPD.
+- `consumeExecutionLimits`: атомарно перевіряє модельні RPM/RPD (і опційно user RPD), повертає коди для delay/fail; RPM → -1, RPD → -2/-3.
 
 ---
 
@@ -164,7 +151,7 @@ return 1
 
 Цей сервіс має HTTP API для інтеграції з Next.js / іншими бекендами.
 
-## POST `/run`
+## POST `/resume/analyze`
 
 Запускає аналіз.
 
@@ -174,23 +161,21 @@ return 1
 {
   userId: string;
   role: 'user' | 'admin';
-  model: string;
   payload: object;
 }
 ```
 
 ### Логіка:
 
-1. Concurrency check
-2. User RPD check
-3. Model limits check
-4. Fallback через список моделей
-5. Job enqueue
-6. Повернення `{ jobId }`
+1. Lua: user RPD (per mode) + concurrency lock
+2. Вибір моделі + fallback (до enqueue)
+3. Backpressure per model (`queue:waiting:{model}` + динамічний cap)
+4. Job enqueue у lite/hard
+5. Повернення `{ jobId }`
 
 ---
 
-## GET `/job/:id/status`
+## GET `/resume/:id/status`
 
 Повертає:
 
@@ -199,7 +184,7 @@ return 1
 - completed
 - failed
 
-## GET `/job/:id/result`
+## GET `/resume/:id/result`
 
 Повертає:
 
@@ -208,11 +193,20 @@ return 1
   status,
   data?,
   error?,
-  finished_at
+  finished_at,
+  used_model?
 }
 ```
 
-## GET `/healthz`
+## POST `/admin/worker-concurrency`
+
+Оновлює конкурентність воркерів без деплою (потрібен internal API key):
+
+```json
+{ "queue": "lite" | "hard", "concurrency": 12 }
+```
+
+## GET `/health`
 
 Перевірка:
 
@@ -226,40 +220,13 @@ return 1
 # ⚙️ 6. Worker Logic (high level)
 
 - consume модельні RPM/RPD (Lua `consumeExecutionLimits`)
-- retryable помилки → BullMQ retry/delay
-- non-retryable/ліміти → failed, повернення токенів, зняття локів
+- retryable (500/503/504 тощо) → BullMQ retry/delay (attempts=2)
+- non-retryable (400/403/404/429/500 context-too-long) → UnrecoverableError → failed, повернення токенів, зняття локів
 - release waiting counter / active_jobs
 
 ---
 
-# 🔁 7. Worker-Level Diagram
-
-```mermaid
-flowchart TD
-
-    A[Worker Receives Job] --> B[Call Primary Model]
-
-    B -->|Success| C[Write Completed Result]
-    C --> D[Remove Lock]
-    D --> E[Job Done]
-
-    B -->|429 or 5xx| F[Try Fallback Model]
-
-    F -->|Fallback Exists| B2[Call Fallback]
-    B2 --> B
-
-    F -->|No Fallback Left| G[Retry Delayed]
-
-    G -->|Retry Left| A
-    G -->|No Retry| H[Fail Job]
-
-    H --> I[Remove Lock]
-    I --> J[Job Done]
-```
-
----
-
-# ⏱ 8. Cron Tasks
+# ⏱ 7. Cron Tasks
 
 ## **DB Sync Cron (every 30s)**
 
@@ -282,7 +249,7 @@ model:{name}:limits
 
 ---
 
-# 🩺 9. Health Check
+# 🩺 8. Health Check
 
 ```json
 {
@@ -297,7 +264,7 @@ model:{name}:limits
 
 ---
 
-# 📴 10. Graceful Shutdown
+# 📴 9. Graceful Shutdown
 
 ```ts
 async function shutdown() {

@@ -2,8 +2,9 @@ import Fastify from 'fastify';
 import corsDeny from './plugins/corsDeny';
 import internalAuth from './plugins/internalAuth';
 import redisPlugin from './plugins/redis';
-import jobsRoutes from './routes/jobs';
+import resumeRoutes from './routes/resume-analyze';
 import healthRoutes from './routes/health';
+import adminRoutes from './routes/admin';
 import { env } from './config/env';
 import { syncUserLimitsFromDB } from './services/userLimitsPreloader';
 import { startCron, stopCron } from './cron';
@@ -15,8 +16,9 @@ const start = async () => {
   await fastify.register(internalAuth);
   await fastify.register(redisPlugin);
 
-  await fastify.register(jobsRoutes);
+  await fastify.register(resumeRoutes, { prefix: '/resume' });
   await fastify.register(healthRoutes);
+  await fastify.register(adminRoutes);
 
   try {
     await fastify.ready();

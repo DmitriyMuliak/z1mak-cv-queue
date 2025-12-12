@@ -58,8 +58,9 @@ app.post('/', async (request, reply) => {
 
 const port = Number(process.env.PORT ?? 8080);
 
-app
-  .listen({ port, host: '0.0.0.0' })
+const start = app.listen({ port, host: '0.0.0.0' });
+
+start
   .then(() => {
     console.log(`Mock Gemini listening on ${port}`);
   })
@@ -67,3 +68,16 @@ app
     console.error(err);
     process.exit(1);
   });
+
+const shutdown = async () => {
+  try {
+    await app.close();
+  } catch (err) {
+    console.error('Mock Gemini shutdown error', err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

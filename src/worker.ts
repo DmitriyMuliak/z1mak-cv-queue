@@ -1,5 +1,6 @@
 import { Worker, QueueEvents, Queue, Job, UnrecoverableError } from 'bullmq';
 import { redisKeys } from './redis/keys';
+import { redisChannels } from './redis/channels';
 import { env } from './config/env';
 import { createRedisClient } from './redis/client';
 import { ModelProviderService } from './ai/ModelProviderService';
@@ -31,9 +32,12 @@ enum ConsumeCode {
 }
 
 const redis = createRedisClient();
+const subRedis = createRedisClient();
 const modelProvider = new ModelProviderService();
 
 const MINUTE_TTL = 70;
+const DEFAULT_CONCURRENCY = { hard: 3, lite: 8 };
+const activeConcurrency = { ...DEFAULT_CONCURRENCY };
 
 const queues = {
   lite: new Queue(env.queueLiteName, { connection: { url: env.redisUrl } }),
@@ -158,7 +162,7 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   }
 };
 
-const createWorker = (queueName: string, queueType: ModeType) =>
+const createWorker = (queueName: string, queueType: ModeType, concurrency: number) =>
   new Worker(
     queueName,
     async (job) => {
@@ -166,13 +170,69 @@ const createWorker = (queueName: string, queueType: ModeType) =>
     },
     {
       connection: { url: env.redisUrl },
-      concurrency: queueType === 'hard' ? 3 : 8,
+      concurrency,
     }
   );
 
 const workers = {
-  lite: createWorker(env.queueLiteName, 'lite'),
-  hard: createWorker(env.queueHardName, 'hard'),
+  lite: createWorker(env.queueLiteName, 'lite', DEFAULT_CONCURRENCY.lite),
+  hard: createWorker(env.queueHardName, 'hard', DEFAULT_CONCURRENCY.hard),
+};
+
+const parseConcurrency = (raw: string | null, fallback: number) => {
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const fetchConcurrencyConfig = async () => {
+  const [liteRaw, hardRaw] = await Promise.all([
+    redis.get(redisKeys.workerConcurrency('lite')),
+    redis.get(redisKeys.workerConcurrency('hard')),
+  ]);
+
+  return {
+    lite: parseConcurrency(liteRaw, DEFAULT_CONCURRENCY.lite),
+    hard: parseConcurrency(hardRaw, DEFAULT_CONCURRENCY.hard),
+  };
+};
+
+const reloadWorker = async (queueType: ModeType, concurrency: number) => {
+  const old = workers[queueType];
+  await old.close();
+  const queueName = queueType === 'hard' ? env.queueHardName : env.queueLiteName;
+  workers[queueType] = createWorker(queueName, queueType, concurrency);
+};
+
+const refreshConcurrencyLoop = async () => {
+  try {
+    const desired = await fetchConcurrencyConfig();
+    const updates: Array<Promise<void>> = [];
+
+    if (desired.lite !== activeConcurrency.lite) {
+      activeConcurrency.lite = desired.lite;
+      updates.push(reloadWorker('lite', desired.lite));
+    }
+    if (desired.hard !== activeConcurrency.hard) {
+      activeConcurrency.hard = desired.hard;
+      updates.push(reloadWorker('hard', desired.hard));
+    }
+
+    if (updates.length > 0) {
+      await Promise.all(updates);
+    }
+  } catch (err) {
+    console.error('Failed to refresh worker concurrency', err);
+  }
+};
+
+const setupConfigSubscription = async () => {
+  try {
+    await subRedis.subscribe(redisChannels.configUpdate, async () => {
+      await refreshConcurrencyLoop();
+    });
+  } catch (err) {
+    console.error('Failed to subscribe to config updates', err);
+  }
 };
 
 const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
@@ -218,11 +278,14 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
 registerQueueEvents(queueEvents.lite, 'lite');
 registerQueueEvents(queueEvents.hard, 'hard');
 
+void refreshConcurrencyLoop();
+void setupConfigSubscription();
+
 const shutdown = async () => {
   await Promise.all([workers.lite.close(), workers.hard.close()]);
   await Promise.all([queueEvents.lite.close(), queueEvents.hard.close()]);
   await Promise.all([queues.lite.close(), queues.hard.close()]);
-  await redis.quit();
+  await Promise.all([redis.quit(), subRedis.quit()]);
   process.exit(0);
 };
 

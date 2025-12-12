@@ -9,4 +9,5 @@ export const redisKeys = {
   jobResult: (jobId: string) => `job:${jobId}:result`,
   userLimits: (userId: string) => `user:${userId}:limits`,
   queueWaitingModel: (model: string) => `queue:waiting:${model}`,
+  workerConcurrency: (type: 'hard' | 'lite') => `config:worker:${type}:concurrency`,
 };

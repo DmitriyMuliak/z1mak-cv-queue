@@ -5,7 +5,6 @@
   "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "start:api": "node dist/server.js",
     "start:worker": "node dist/worker.js",
@@ -16,7 +15,9 @@
     "format": "prettier --check \"**/*.{ts,js,json,md}\"",
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",
     "fix": "npm run lint -- --fix && npm run format:write",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json && npm run build:copy-lua",
+    "build:copy-lua": "mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/"
   },
   "keywords": [],
   "author": "",

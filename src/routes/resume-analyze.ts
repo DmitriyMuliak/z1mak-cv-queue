@@ -39,8 +39,8 @@ const computeMaxQueueLength = (rpm: number, rpd: number, avgSeconds: number) => 
   return Math.max(1, Math.min(raw, dayCap));
 };
 
-export default async function jobsRoutes(fastify: FastifyInstance) {
-  fastify.post<{ Body: RunAiJobBody }>('/run-ai-job', async (request, reply) => {
+export default async function resumeRoutes(fastify: FastifyInstance) {
+  fastify.post<{ Body: RunAiJobBody }>('/analyze', async (request, reply) => {
     const body = request.body;
 
     if (
@@ -165,7 +165,7 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
     return { jobId };
   });
 
-  fastify.get<{ Params: { jobId: string } }>('/job/:jobId', async (request, reply) => {
+  fastify.get<{ Params: { jobId: string } }>('/:id/result', async (request, reply) => {
     const jobId = request.params.jobId as string;
     if (!jobId) {
       return reply.status(400).send({ ok: false, error: 'INVALID_JOB_ID' });
@@ -189,6 +189,27 @@ export default async function jobsRoutes(fastify: FastifyInstance) {
         error: null,
         finished_at: null,
       };
+    }
+
+    return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
+  });
+
+  fastify.get<{ Params: { jobId: string } }>('/:id/status', async (request, reply) => {
+    const jobId = request.params.jobId as string;
+    if (!jobId) {
+      return reply.status(400).send({ ok: false, error: 'INVALID_JOB_ID' });
+    }
+
+    const [resultStatus, metaStatus] = await Promise.all([
+      fastify.redis.hget(redisKeys.jobResult(jobId), 'status'),
+      fastify.redis.hget(redisKeys.jobMeta(jobId), 'status'),
+    ]);
+
+    if (resultStatus) {
+      return { status: resultStatus };
+    }
+    if (metaStatus) {
+      return { status: metaStatus || 'queued' };
     }
 
     return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
