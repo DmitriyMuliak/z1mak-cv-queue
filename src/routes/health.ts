@@ -12,7 +12,10 @@ export default async function healthRoutes(fastify: FastifyInstance) {
     let queuePaused = false;
     let queueError: string | null = null;
     try {
-      await Promise.all([fastify.queueLite.waitUntilReady(), fastify.queueHard.waitUntilReady()]);
+      await Promise.all([
+        fastify.queueLite.waitUntilReady(),
+        fastify.queueHard.waitUntilReady(),
+      ]);
       queueReady = true;
       const [litePaused, hardPaused] = await Promise.all([
         fastify.queueLite.isPaused(),

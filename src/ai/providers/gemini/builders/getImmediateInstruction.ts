@@ -1,8 +1,7 @@
-import { Mode } from "../../../../../types/mode";
-import { OrderedListBuilder } from "../utils";
+import { Mode } from '../../../../../types/mode';
+import { OrderedListBuilder } from '../utils';
 
 const getLanguageName = (locale: string) => (locale === 'uk' ? 'Ukrainian' : 'English');
-
 
 export const getImmediateInstruction = (mode: Mode, locale: string) => {
   const { evaluationMode, domain, depth } = mode;

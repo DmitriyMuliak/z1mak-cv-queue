@@ -16,7 +16,10 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     }
 
     await fastify.redis.set(redisKeys.workerConcurrency(body.queue), value);
-    await fastify.redis.publish(redisChannels.configUpdate, JSON.stringify({ queue: body.queue }));
+    await fastify.redis.publish(
+      redisChannels.configUpdate,
+      JSON.stringify({ queue: body.queue })
+    );
 
     return { ok: true, queue: body.queue, concurrency: value };
   });

@@ -22,7 +22,8 @@ const MAX_WAIT_MINUTES = 30;
 const QUEUE_BUFFER = 0.9;
 const AVG_SECONDS = { hard: 25, lite: 15 };
 
-const isHardMode = (mode: Mode) => mode.evaluationMode === 'byJob' && mode.depth === 'deep';
+const isHardMode = (mode: Mode) =>
+  mode.evaluationMode === 'byJob' && mode.depth === 'deep';
 
 enum AcquireCode {
   OK = 1,
@@ -84,8 +85,8 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       const userDayLimit = isAdmin
         ? 0
         : modeType === 'hard'
-          ? userLimits.hard_rpd ?? 0
-          : userLimits.lite_rpd ?? 0;
+          ? (userLimits.hard_rpd ?? 0)
+          : (userLimits.lite_rpd ?? 0);
       const concurrencyLimit = isAdmin ? 0 : (userLimits.max_concurrency ?? 0);
 
       const code = await fastify.redis.combinedCheckAndAcquire(
@@ -127,13 +128,17 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
     if (!selectedModel) {
       return reply.status(429).send({ ok: false, error: 'MODEL_LIMIT' });
     }
-    
+
     const avgSeconds = modeType === 'hard' ? AVG_SECONDS.hard : AVG_SECONDS.lite;
-    const maxQueueLength = computeMaxQueueLength(selectedModelRpm, selectedModelRpd, avgSeconds);
-    
+    const maxQueueLength = computeMaxQueueLength(
+      selectedModelRpm,
+      selectedModelRpd,
+      avgSeconds
+    );
+
     const waitingKey = redisKeys.queueWaitingModel(selectedModel);
     const waitingCount = await fastify.redis.incr(waitingKey);
-    
+
     if (waitingCount > maxQueueLength) {
       await fastify.redis.decr(waitingKey);
       return reply.status(429).send({

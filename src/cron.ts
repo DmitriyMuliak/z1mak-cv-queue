@@ -34,8 +34,8 @@ export const startCron = async () => {
   await cleanupOrphanLocks();
   cleanupTimer = setInterval(cleanupOrphanLocks, ORPHAN_CLEAN_MS);
 
-   await expireStaleJobs();
-   expireTimer = setInterval(expireStaleJobs, EXPIRE_CHECK_MS);
+  await expireStaleJobs();
+  expireTimer = setInterval(expireStaleJobs, EXPIRE_CHECK_MS);
 };
 
 export const stopCron = async () => {
@@ -240,7 +240,11 @@ const expireStaleJobs = async () => {
       // For stale active jobs only return limits and mark status; do not touch BullMQ job entry
       if (tokensConsumed && modelForTokens) {
         await redis.returnTokensAtomic(
-          [redisKeys.modelRpm(modelForTokens), redisKeys.modelRpd(modelForTokens), '__nil__'],
+          [
+            redisKeys.modelRpm(modelForTokens),
+            redisKeys.modelRpd(modelForTokens),
+            '__nil__',
+          ],
           [1, MINUTE_TTL, dayTtl, 0]
         );
       }
@@ -250,7 +254,9 @@ const expireStaleJobs = async () => {
       const waitingKey =
         !isActive && model ? redisKeys.queueWaitingModel(model) : '__nil__';
       const activeKey = userId ? redisKeys.userActiveJobs(userId) : '__nil__';
-      const rpdKey = userId ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT()) : '__nil__';
+      const rpdKey = userId
+        ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT())
+        : '__nil__';
 
       await redis.expireStaleJob(
         [

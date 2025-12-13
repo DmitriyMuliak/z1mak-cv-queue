@@ -59,7 +59,7 @@ const returnTokens = async (model: string) => {
 
 const consumeModelLimits = async (
   model: string,
-  limits: { modelRpm: number; modelRpd: number; }
+  limits: { modelRpm: number; modelRpd: number }
 ): Promise<number> => {
   const dayTtl = getSecondsUntilMidnightPT();
   return redis.consumeExecutionLimits(
@@ -99,9 +99,14 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       return;
     }
 
-    if (consumeCode === ConsumeCode.ModelRpdExceeded || consumeCode === ConsumeCode.UserRpdExceeded) {
+    if (
+      consumeCode === ConsumeCode.ModelRpdExceeded ||
+      consumeCode === ConsumeCode.UserRpdExceeded
+    ) {
       const reason =
-        consumeCode === ConsumeCode.ModelRpdExceeded ? 'MODEL_RPD_EXCEEDED' : 'USER_RPD_EXCEEDED';
+        consumeCode === ConsumeCode.ModelRpdExceeded
+          ? 'MODEL_RPD_EXCEEDED'
+          : 'USER_RPD_EXCEEDED';
       // Do not retry these failures
       throw new UnrecoverableError(reason);
     }

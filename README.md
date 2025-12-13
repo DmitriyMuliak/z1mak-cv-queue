@@ -77,7 +77,7 @@ flowchart LR
 
 ### **3) Cron**
 
-- SCAN job:*:result → батч upsert у БД, видалення ключів
+- SCAN job:\*:result → батч upsert у БД, видалення ключів
 - cleanup orphan locks
 - expireStaleJobs (довгі waiting/delayed → expired, зняття лічильників)
 
@@ -105,12 +105,10 @@ model:{model}:limits
   rpd
 ```
 
-### User Daily RPD
+### User Daily RPD (STRING with TTL)
 
 ```
-user:{id}:daily:{YYYY-MM-DD}
-  used_rpd
-  updated_at
+user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
 ```
 
 ### Concurrency Control
@@ -142,6 +140,7 @@ job:{id}:result
 ---
 
 # 🔥 4. Lua Скрипти (тезисно)
+
 - `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, перевіряє модельний RPD (без списання); повертає код OK / CONCURRENCY / USER_RPD / MODEL_RPD.
 - `consumeExecutionLimits`: атомарно перевіряє модельні RPM/RPD (і опційно user RPD), повертає коди для delay/fail; RPM → -1, RPD → -2/-3.
 

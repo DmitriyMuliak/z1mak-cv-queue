@@ -112,237 +112,248 @@ describe('cron logic', () => {
 // so variables used in mocks must be initialized earlier.
 // Rewrote the test with vi.hoisted to create all mocks
 // (fakeRedis, supabaseClientMock, arrays) before the hoisted vi.mock.
-const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoisted(() => {
-  const endsWithSafe = (key: string, suffix: string | undefined) =>
-    suffix ? key.endsWith(suffix) : true;
+const { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues } = vi.hoisted(
+  () => {
+    const endsWithSafe = (key: string, suffix: string | undefined) =>
+      suffix ? key.endsWith(suffix) : true;
 
-  class FakeRedis {
-    strings = new Map<string, string>();
-    hashes = new Map<string, Record<string, string>>();
-    zsets = new Map<string, Map<string, number>>();
-    expirations = new Map<string, number>();
+    class FakeRedis {
+      strings = new Map<string, string>();
+      hashes = new Map<string, Record<string, string>>();
+      zsets = new Map<string, Map<string, number>>();
+      expirations = new Map<string, number>();
 
-    scanCalls: Array<{ pattern: string; count: number }> = [];
-    delCalls: string[][] = [];
+      scanCalls: Array<{ pattern: string; count: number }> = [];
+      delCalls: string[][] = [];
 
-    set(key: string, value: string | number) {
-      this.strings.set(key, String(value));
-    }
-
-    get(key: string) {
-      return this.strings.get(key) ?? null;
-    }
-
-    hset(key: string, values: Record<string, string | number | null | undefined>) {
-      const existing = this.hashes.get(key) ?? {};
-      for (const [k, v] of Object.entries(values)) {
-        existing[k] = v === undefined || v === null ? '' : String(v);
+      set(key: string, value: string | number) {
+        this.strings.set(key, String(value));
       }
-      this.hashes.set(key, existing);
-    }
 
-    hgetall(key: string) {
-      return this.hashes.get(key) ?? {};
-    }
-
-    del(...keys: string[]) {
-      this.delCalls.push(keys);
-      for (const key of keys) {
-        this.strings.delete(key);
-        this.hashes.delete(key);
-        this.zsets.delete(key);
+      get(key: string) {
+        return this.strings.get(key) ?? null;
       }
-    }
 
-    exists(key: string) {
-      return this.strings.has(key) || this.hashes.has(key) || this.zsets.has(key) ? 1 : 0;
-    }
+      hset(key: string, values: Record<string, string | number | null | undefined>) {
+        const existing = this.hashes.get(key) ?? {};
+        for (const [k, v] of Object.entries(values)) {
+          existing[k] = v === undefined || v === null ? '' : String(v);
+        }
+        this.hashes.set(key, existing);
+      }
 
-    scan(cursor: string, _match: string, pattern: string, _countKey: string, count: number) {
-      this.scanCalls.push({ pattern, count });
-      const keys = Array.from(
-        new Set([...this.strings.keys(), ...this.hashes.keys(), ...this.zsets.keys()])
-      ).filter((k) => this.matchesPattern(k, pattern));
-      const slice = keys.slice(Number(cursor), Number(cursor) + count);
-      const next = Number(cursor) + count >= keys.length ? '0' : String(Number(cursor) + count);
-      return [next, slice];
-    }
+      hgetall(key: string) {
+        return this.hashes.get(key) ?? {};
+      }
 
-    private matchesPattern(key: string, pattern: string) {
-      if (pattern === '*') return true;
-      const [prefix, suffix] = pattern.split('*');
-      return key.startsWith(prefix) && endsWithSafe(key, suffix);
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    zrange(key: string, _start: number, _end: number) {
-      const map = this.zsets.get(key);
-      if (!map) return [];
-      return Array.from(map.entries())
-        .sort((a, b) => a[1] - b[1])
-        .map(([member]) => member);
-    }
-
-    zrem(key: string, member: string) {
-      const map = this.zsets.get(key);
-      if (!map) return 0;
-      const had = map.delete(member);
-      return had ? 1 : 0;
-    }
-
-    zadd(key: string, score: number, member: string) {
-      const map = this.zsets.get(key) ?? new Map<string, number>();
-      map.set(member, score);
-      this.zsets.set(key, map);
-    }
-
-    zremrangebyscore(key: string, min: number | string, max: number | string) {
-      const map = this.zsets.get(key);
-      if (!map) return 0;
-      const minNum = min === '-inf' ? Number.NEGATIVE_INFINITY : Number(min);
-      const maxNum = max === '+inf' ? Number.POSITIVE_INFINITY : Number(max);
-      let removed = 0;
-      for (const [member, score] of Array.from(map.entries())) {
-        if (score >= minNum && score <= maxNum) {
-          map.delete(member);
-          removed++;
+      del(...keys: string[]) {
+        this.delCalls.push(keys);
+        for (const key of keys) {
+          this.strings.delete(key);
+          this.hashes.delete(key);
+          this.zsets.delete(key);
         }
       }
-      return removed;
-    }
 
-    incr(key: string) {
-      const next = Number(this.strings.get(key) ?? 0) + 1;
-      this.strings.set(key, String(next));
-      return next;
-    }
-
-    decr(key: string) {
-      const next = Number(this.strings.get(key) ?? 0) - 1;
-      this.strings.set(key, String(next));
-      return next;
-    }
-
-    returnTokensAtomic(
-      keys: [string, string, string],
-      args: [number, number, number, number]
-    ) {
-      const [rpmKey, rpdKey, userKey] = keys;
-      const [consume, minuteTtl, dayTtl, userTtl] = args;
-      const decrClamp = (key: string, ttl: number) => {
-        if (!key || key === '__nil__') return;
-        const val = (Number(this.strings.get(key) ?? 0) - consume);
-        const next = val < 0 ? 0 : val;
-        this.set(key, next);
-        if (ttl > 0) this.expire(key, ttl);
-      };
-      decrClamp(rpmKey, minuteTtl);
-      decrClamp(rpdKey, dayTtl);
-      decrClamp(userKey, userTtl);
-    }
-
-    expireStaleJob(
-      keys: [string, string, string, string, string],
-      args: [number, string, string, string, string, string, string]
-    ) {
-      const [waitingKey, activeKey, rpdKey, resultKey, metaKey] = keys;
-      const [dayTtl, finishedAt, updatedAt, status, err, errCode, jobId] = args;
-
-      const decrClamp = (key: string) => {
-        if (!key || key === '__nil__') return;
-        const next = this.decr(key);
-        if (next < 0) this.set(key, 0);
-      };
-
-      decrClamp(waitingKey);
-      if (activeKey && activeKey !== '__nil__' && jobId) {
-        this.zrem(activeKey, jobId);
-      }
-      if (rpdKey && rpdKey !== '__nil__') {
-        decrClamp(rpdKey);
-        if (dayTtl > 0) this.expire(rpdKey, Number(dayTtl));
+      exists(key: string) {
+        return this.strings.has(key) || this.hashes.has(key) || this.zsets.has(key)
+          ? 1
+          : 0;
       }
 
-      this.hset(resultKey, {
-        status,
-        error: err,
-        error_code: errCode,
-        finished_at: finishedAt,
-        expired_at: finishedAt,
-      });
-      this.hset(metaKey, { status, updated_at: updatedAt });
+      scan(
+        cursor: string,
+        _match: string,
+        pattern: string,
+        _countKey: string,
+        count: number
+      ) {
+        this.scanCalls.push({ pattern, count });
+        const keys = Array.from(
+          new Set([...this.strings.keys(), ...this.hashes.keys(), ...this.zsets.keys()])
+        ).filter((k) => this.matchesPattern(k, pattern));
+        const slice = keys.slice(Number(cursor), Number(cursor) + count);
+        const next =
+          Number(cursor) + count >= keys.length ? '0' : String(Number(cursor) + count);
+        return [next, slice];
+      }
+
+      private matchesPattern(key: string, pattern: string) {
+        if (pattern === '*') return true;
+        const [prefix, suffix] = pattern.split('*');
+        return key.startsWith(prefix) && endsWithSafe(key, suffix);
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      zrange(key: string, _start: number, _end: number) {
+        const map = this.zsets.get(key);
+        if (!map) return [];
+        return Array.from(map.entries())
+          .sort((a, b) => a[1] - b[1])
+          .map(([member]) => member);
+      }
+
+      zrem(key: string, member: string) {
+        const map = this.zsets.get(key);
+        if (!map) return 0;
+        const had = map.delete(member);
+        return had ? 1 : 0;
+      }
+
+      zadd(key: string, score: number, member: string) {
+        const map = this.zsets.get(key) ?? new Map<string, number>();
+        map.set(member, score);
+        this.zsets.set(key, map);
+      }
+
+      zremrangebyscore(key: string, min: number | string, max: number | string) {
+        const map = this.zsets.get(key);
+        if (!map) return 0;
+        const minNum = min === '-inf' ? Number.NEGATIVE_INFINITY : Number(min);
+        const maxNum = max === '+inf' ? Number.POSITIVE_INFINITY : Number(max);
+        let removed = 0;
+        for (const [member, score] of Array.from(map.entries())) {
+          if (score >= minNum && score <= maxNum) {
+            map.delete(member);
+            removed++;
+          }
+        }
+        return removed;
+      }
+
+      incr(key: string) {
+        const next = Number(this.strings.get(key) ?? 0) + 1;
+        this.strings.set(key, String(next));
+        return next;
+      }
+
+      decr(key: string) {
+        const next = Number(this.strings.get(key) ?? 0) - 1;
+        this.strings.set(key, String(next));
+        return next;
+      }
+
+      returnTokensAtomic(
+        keys: [string, string, string],
+        args: [number, number, number, number]
+      ) {
+        const [rpmKey, rpdKey, userKey] = keys;
+        const [consume, minuteTtl, dayTtl, userTtl] = args;
+        const decrClamp = (key: string, ttl: number) => {
+          if (!key || key === '__nil__') return;
+          const val = Number(this.strings.get(key) ?? 0) - consume;
+          const next = val < 0 ? 0 : val;
+          this.set(key, next);
+          if (ttl > 0) this.expire(key, ttl);
+        };
+        decrClamp(rpmKey, minuteTtl);
+        decrClamp(rpdKey, dayTtl);
+        decrClamp(userKey, userTtl);
+      }
+
+      expireStaleJob(
+        keys: [string, string, string, string, string],
+        args: [number, string, string, string, string, string, string]
+      ) {
+        const [waitingKey, activeKey, rpdKey, resultKey, metaKey] = keys;
+        const [dayTtl, finishedAt, updatedAt, status, err, errCode, jobId] = args;
+
+        const decrClamp = (key: string) => {
+          if (!key || key === '__nil__') return;
+          const next = this.decr(key);
+          if (next < 0) this.set(key, 0);
+        };
+
+        decrClamp(waitingKey);
+        if (activeKey && activeKey !== '__nil__' && jobId) {
+          this.zrem(activeKey, jobId);
+        }
+        if (rpdKey && rpdKey !== '__nil__') {
+          decrClamp(rpdKey);
+          if (dayTtl > 0) this.expire(rpdKey, Number(dayTtl));
+        }
+
+        this.hset(resultKey, {
+          status,
+          error: err,
+          error_code: errCode,
+          finished_at: finishedAt,
+          expired_at: finishedAt,
+        });
+        this.hset(metaKey, { status, updated_at: updatedAt });
+      }
+
+      pipeline() {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        const self = this;
+        const ops: Array<[null, any]> = []; // first item is error
+        const chain = {
+          hset(key: string, values: Record<string, string | number | null | undefined>) {
+            self.hset(key, values);
+            ops.push([null, 'OK']);
+            return chain;
+          },
+          exists(key: string) {
+            const exists = self.exists(key);
+            ops.push([null, exists]);
+            return chain;
+          },
+          del(...keys: string[]) {
+            self.del(...keys);
+            ops.push([null, 1]);
+            return chain;
+          },
+          decr(key: string) {
+            const val = self.decr(key);
+            ops.push([null, val]);
+            return chain;
+          },
+          zrem(key: string, member: string) {
+            const res = self.zrem(key, member);
+            ops.push([null, res]);
+            return chain;
+          },
+          expire(key: string, ttl: number) {
+            self.expire(key, ttl);
+            ops.push([null, 1]);
+            return chain;
+          },
+          zremrangebyscore(key: string, min: number | string, max: number | string) {
+            const res = self.zremrangebyscore(key, min, max);
+            ops.push([null, res]);
+            return chain;
+          },
+          exec: async () => ops,
+        };
+        return chain;
+      }
+
+      expire(key: string, ttl: number) {
+        this.expirations.set(key, ttl);
+      }
     }
 
-    pipeline() {
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
-      const self = this;
-      const ops: Array<[null, any]> = []; // first item is error
-      const chain = {
-        hset(key: string, values: Record<string, string | number | null | undefined>) {
-          self.hset(key, values);
-          ops.push([null, 'OK']);
-          return chain;
-        },
-        exists(key: string) {
-          const exists = self.exists(key);
-          ops.push([null, exists]);
-          return chain;
-        },
-        del(...keys: string[]) {
-          self.del(...keys);
-          ops.push([null, 1]);
-          return chain;
-        },
-        decr(key: string) {
-          const val = self.decr(key);
-          ops.push([null, val]);
-          return chain;
-        },
-        zrem(key: string, member: string) {
-          const res = self.zrem(key, member);
-          ops.push([null, res]);
-          return chain;
-        },
-        expire(key: string, ttl: number) {
-          self.expire(key, ttl);
-          ops.push([null, 1]);
-          return chain;
-        },
-        zremrangebyscore(key: string, min: number | string, max: number | string) {
-          const res = self.zremrangebyscore(key, min, max);
-          ops.push([null, res]);
-          return chain;
-        },
-        exec: async () => ops,
-      };
-      return chain;
-    }
+    const fakeRedis = new FakeRedis();
 
-    expire(key: string, ttl: number) {
-      this.expirations.set(key, ttl);
-    }
-  }
-
-  const fakeRedis = new FakeRedis();
-
-  const supabaseQueries: any[] = [];
-  const supabaseClientMock = {
-    isMock: false,
-    query: async (sql: string, params: unknown[] = []) => {
-      supabaseQueries.push([sql, params]);
-      return { rows: [] };
-    },
-    connect: async () => ({
+    const supabaseQueries: any[] = [];
+    const supabaseClientMock = {
+      isMock: false,
       query: async (sql: string, params: unknown[] = []) => {
         supabaseQueries.push([sql, params]);
         return { rows: [] };
       },
-      release: async () => {},
-    }),
-    end: async () => {},
-  };
+      connect: async () => ({
+        query: async (sql: string, params: unknown[] = []) => {
+          supabaseQueries.push([sql, params]);
+          return { rows: [] };
+        },
+        release: async () => {},
+      }),
+      end: async () => {},
+    };
 
-  const createdQueues: any[] = [];
+    const createdQueues: any[] = [];
 
-  return { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues };
-});
+    return { fakeRedis, supabaseQueries, supabaseClientMock, createdQueues };
+  }
+);

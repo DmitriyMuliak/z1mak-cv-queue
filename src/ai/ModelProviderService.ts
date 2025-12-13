@@ -17,7 +17,9 @@ export interface ModelJobResult {
 export class ModelProviderService {
   private geminiProvider: { generate: GeminiProvider['generate'] };
 
-  constructor(geminiProvider: { generate: GeminiProvider['generate'] } = new GeminiProvider()) {
+  constructor(
+    geminiProvider: { generate: GeminiProvider['generate'] } = new GeminiProvider()
+  ) {
     this.geminiProvider = geminiProvider;
   }
 

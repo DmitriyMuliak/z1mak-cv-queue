@@ -102,7 +102,12 @@ export const postJob = async (body: RunBody) =>
     'x-internal-api-key': INTERNAL_KEY,
   });
 
-export const seedModelLimits = async (redis: Redis, modelId: string, rpm: number, rpd: number) => {
+export const seedModelLimits = async (
+  redis: Redis,
+  modelId: string,
+  rpm: number,
+  rpd: number
+) => {
   await redis.hset(redisKeys.modelLimits(modelId), { rpm, rpd });
 };
 
@@ -157,15 +162,20 @@ export const startCompose = async () => {
   // TEST_USE_COMPOSE=0 npm test -- rateLimiter.test.ts
   // STOP
   // docker compose -f docker-compose.test.yml down
-  execSync(`docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`, {
-    stdio: 'inherit',
-  });
+  execSync(
+    `docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`,
+    {
+      stdio: 'inherit',
+    }
+  );
   await waitForApi();
 };
 
 export const stopCompose = async () => {
   if (!usingCompose) return;
-  execSync(`docker compose -f ${composeFile} down -v --remove-orphans`, { stdio: 'inherit' });
+  execSync(`docker compose -f ${composeFile} down -v --remove-orphans`, {
+    stdio: 'inherit',
+  });
 };
 
 export const createRedis = () => new Redis(REDIS_URL);
