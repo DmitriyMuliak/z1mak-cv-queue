@@ -1,4 +1,4 @@
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../types/mode';
 import { isHardMode } from '../utils/mode';
 
 export interface ModelChain {

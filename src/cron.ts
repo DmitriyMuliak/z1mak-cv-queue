@@ -228,6 +228,7 @@ const expireStaleJobs = async () => {
 
       const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
       const tokensConsumed = meta.tokens_consumed === 'true';
+      const providerCompleted = meta.provider_completed === 'true';
       const modelForTokens = model || meta.processed_model || meta.requested_model;
       const state = await job.getState();
       const isActive = state === 'active';
@@ -238,7 +239,7 @@ const expireStaleJobs = async () => {
       }
 
       // For stale active jobs only return limits and mark status; do not touch BullMQ job entry
-      if (tokensConsumed && modelForTokens) {
+      if (tokensConsumed && modelForTokens && !providerCompleted) {
         await redis.returnTokensAtomic(
           [
             redisKeys.modelRpm(modelForTokens),

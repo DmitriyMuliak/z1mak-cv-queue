@@ -1,4 +1,4 @@
-import type { Mode } from '../../../types/mode';
+import type { Mode } from '../../../src/types/mode';
 import { extractStatus } from '../../../src/ai/utils/errorUtils';
 
 export class HttpMockGeminiProvider {

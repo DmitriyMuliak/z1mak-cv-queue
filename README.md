@@ -142,7 +142,7 @@ job:{id}:result
 # 🔥 4. Lua Скрипти (тезисно)
 
 - `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, перевіряє модельний RPD (без списання); повертає код OK / CONCURRENCY / USER_RPD / MODEL_RPD.
-- `consumeExecutionLimits`: атомарно перевіряє модельні RPM/RPD (і опційно user RPD), повертає коди для delay/fail; RPM → -1, RPD → -2/-3.
+- `consumeExecutionLimits`: атомарно перевіряє та споживає модельні RPM/RPD
 
 ---
 

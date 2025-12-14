@@ -1,4 +1,4 @@
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../types/mode';
 
 export const isByJob = (mode: Mode): boolean => mode.evaluationMode === 'byJob';
 

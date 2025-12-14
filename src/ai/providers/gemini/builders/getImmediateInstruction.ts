@@ -1,4 +1,4 @@
-import { Mode } from '../../../../../types/mode';
+import { Mode } from '../../../../types/mode';
 import { isHardMode } from '../../../../utils/mode';
 import { OrderedListBuilder } from '../utils';
 

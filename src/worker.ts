@@ -5,8 +5,8 @@ import { env } from './config/env';
 import { createRedisClient } from './redis/client';
 import { ModelProviderService } from './ai/ModelProviderService';
 import { getSecondsUntilMidnightPT } from './utils/time';
-import type { Mode } from '../types/mode';
-import { ConsumeCode } from '../types/queueCodes';
+import type { Mode } from './types/mode';
+import { ConsumeCode } from './types/queueCodes';
 
 type ModeType = 'hard' | 'lite';
 
@@ -109,6 +109,9 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
   }
 
   try {
+    // Mark that we have reached the provider; helps avoid returning tokens if the worker crashes after provider call
+    await redis.hset(redisKeys.jobMeta(jobId), { provider_completed: 'false' });
+
     const result = await modelProvider.execute({
       model,
       cvDescription: payload.cvDescription,
@@ -116,6 +119,8 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       mode: payload.mode,
       locale: payload.locale,
     });
+
+    await redis.hset(redisKeys.jobMeta(jobId), { provider_completed: 'true' });
 
     const finishedAt = new Date().toISOString();
     const pipe = redis.pipeline();
@@ -229,7 +234,11 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
 
     const userId = meta.user_id;
     const model = meta.processed_model || meta.requested_model;
-    if (userId && model && meta.tokens_consumed === 'true') {
+    const tokensConsumed = meta.tokens_consumed === 'true';
+    const providerCompleted = meta.provider_completed === 'true';
+
+    // Return tokens only if they were consumed but provider call did not complete (e.g., failed before/at provider)
+    if (userId && model && tokensConsumed && !providerCompleted) {
       await returnTokens(model);
     }
 

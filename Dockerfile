@@ -10,8 +10,6 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
-COPY api ./api
-COPY types ./types
 COPY test ./test
 COPY README.md ./README.md
 

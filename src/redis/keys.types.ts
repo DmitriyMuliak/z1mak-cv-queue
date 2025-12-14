@@ -29,6 +29,7 @@ export interface RedisJobMetaHash {
   attempts?: string;
   mode_type?: RedisModeType;
   tokens_consumed?: 'true';
+  provider_completed?: 'true' | 'false';
 }
 
 export interface RedisJobResultHash {

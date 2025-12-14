@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import Redis from 'ioredis';
 import { redisKeys } from '../../src/redis/keys';
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../../src/types/mode';
 
 export const composeRequested = process.env.TEST_USE_COMPOSE !== '0';
 export const dockerAvailable = (() => {

@@ -1,4 +1,4 @@
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../types/mode';
 import { GeminiProvider } from './providers/gemini/GeminiProvider';
 
 export interface ModelProvider {

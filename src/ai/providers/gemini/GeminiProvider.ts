@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { SchemaService } from '../../schema/SchemaService';
-import type { Mode } from '../../../../types/mode';
+import type { Mode } from '../../../types/mode';
 import { extractMessage, extractStatus, isContextTooLong } from '../../utils/errorUtils';
 import { buildPromptSettings } from './builders/buildPromptSettings';
 import { safetySettings } from './builders/safetySettings';

@@ -4,7 +4,7 @@ import { redisKeys } from '../../redis/keys';
 import { getCachedUserLimits } from '../../services/limitsCache';
 import { resolveModelChain } from '../../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../../utils/time';
-import { AcquireCode } from '../../../types/queueCodes';
+import { AcquireCode } from '../../types/queueCodes';
 import { getModeType } from '../../utils/mode';
 import { JobIdParams, JobIdParamsSchema, RunAiJobBody, RunAiJobBodySchema } from './schema';
 
