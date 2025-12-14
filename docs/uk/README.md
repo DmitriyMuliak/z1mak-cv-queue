@@ -1,4 +1,4 @@
-# 🚀 **AI Jobs Service — Queue + Worker + API Backend**
+# 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
 Цей сервіс — це ядро системи виконання AI-аналізу.
 Він обробляє задачі з урахуванням:

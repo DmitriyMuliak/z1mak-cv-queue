@@ -1,6 +1,4 @@
-Чудовий опис. Переклад з урахуванням технічної термінології та збереженням структури Markdown:
-
-# 🚀 **AI Jobs Service — Queue + Worker + API Backend**
+# 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
 This service is the core of the AI analysis execution system.
 It processes jobs considering:
