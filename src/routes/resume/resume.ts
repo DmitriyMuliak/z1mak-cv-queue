@@ -4,17 +4,14 @@ import { redisKeys } from '../../redis/keys';
 import { getCachedUserLimits } from '../../services/limitsCache';
 import { resolveModelChain } from '../../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../../utils/time';
-import type { Mode } from '../../../types/mode';
 import { AcquireCode } from '../../../types/queueCodes';
+import { getModeType } from '../../utils/mode';
 import { JobIdParams, JobIdParamsSchema, RunAiJobBody, RunAiJobBodySchema } from './schema';
 
 const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
 const MAX_WAIT_MINUTES = 30;
 const QUEUE_BUFFER = 0.9;
 const AVG_SECONDS = { hard: 25, lite: 15 };
-
-const isHardMode = (mode: Mode) =>
-  mode.evaluationMode === 'byJob' && mode.depth === 'deep';
 
 const computeMaxQueueLength = (rpm: number, rpd: number, avgSeconds: number) => {
   const rpmSafe = Math.max(rpm, 0);
@@ -39,7 +36,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       const now = Date.now();
       const todayPT = getCurrentDatePT();
       const dayTtl = getSecondsUntilMidnightPT(); // TTL until 00:00 PT
-      const modeType: 'hard' | 'lite' = isHardMode(body.payload.mode) ? 'hard' : 'lite';
+      const modeType: 'hard' | 'lite' = getModeType(body.payload.mode);
 
       const chainFromMode = resolveModelChain(body.payload.mode);
       const requestedModel = chainFromMode.requestedModel;

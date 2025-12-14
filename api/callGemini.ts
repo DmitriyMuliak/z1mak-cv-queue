@@ -1,6 +1,7 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import { SchemaService } from '../src/ai/schema/SchemaService';
 import { Mode } from '../types/mode';
+import { isByJob, isHardMode } from '../src/utils/mode';
 import { OrderedListBuilder } from '../src/ai/providers/gemini/utils';
 
 // https://ai.google.dev/gemini-api/docs/models
@@ -81,11 +82,11 @@ const buildPromptSettings = ({
   options,
 }: BuildPromptSettingsParams) => {
   const { mode } = options;
-  const isByJob = mode.evaluationMode === 'byJob';
+  const byJob = isByJob(mode);
 
   let inputDataBlock = `<CV_TEXT>\n${cvDescription}\n</CV_TEXT>`;
 
-  if (isByJob) {
+  if (byJob) {
     inputDataBlock += `\n\n<JOB_DESCRIPTION>\n${jobDescription}\n</JOB_DESCRIPTION>`;
   }
 
@@ -185,7 +186,7 @@ const getSystemInstructions = (mode: Mode) => {
 };
 
 const getImmediateInstruction = (mode: Mode, locale: string) => {
-  const { evaluationMode, domain, depth } = mode;
+  const { domain } = mode;
   const builder = new OrderedListBuilder();
 
   const langName = getLanguageName(locale);
@@ -201,7 +202,9 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   );
 
   // 2. Mode Specifics
-  if (evaluationMode === 'byJob') {
+  const byJob = isByJob(mode);
+
+  if (byJob) {
     builder.add(
       `Read <CV_TEXT> and identify all matches and gaps compared to <JOB_DESCRIPTION>.`
     );
@@ -228,10 +231,9 @@ const getImmediateInstruction = (mode: Mode, locale: string) => {
   }
 
   // 3. Depth Specifics (Schema Sync)
-  const isDeep = depth === 'deep';
-  const isHardMode = evaluationMode === 'byJob' && isDeep;
+  const hardMode = isHardMode(mode);
 
-  if (isHardMode) {
+  if (hardMode) {
     builder.add(
       `Provide a detailed "detailedSkillAnalysis" parsing every skill mentioned.`
     );
@@ -272,4 +274,3 @@ const safetySettings = [
     threshold: HarmBlockThreshold.BLOCK_NONE,
   },
 ];
-

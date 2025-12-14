@@ -2,44 +2,37 @@ import { produce } from 'immer';
 import { Schema, Type } from '@google/genai';
 import { PROPERTY_DEFINITIONS, amountPlaceholder } from './propertyDefinitions';
 import type { Mode } from '../../../types/mode';
+import { isByJob, isCommonDomain, isDeep, isHardMode } from '../../utils/mode';
 
 export class SchemaService {
   private mode: Mode;
+  private readonly commonDomain: boolean;
+  private readonly byJob: boolean;
+  private readonly deep: boolean;
+  private readonly hardMode: boolean;
 
   constructor(mode: Mode) {
     this.mode = mode;
-  }
-
-  private get isCommonDomain() {
-    return this.mode.domain === 'common';
-  }
-
-  private get isByJob() {
-    return this.mode.evaluationMode === 'byJob';
-  }
-
-  private get isDeep() {
-    return this.mode.depth === 'deep';
-  }
-
-  private get isHardMode() {
-    return this.isByJob && this.isDeep;
+    this.commonDomain = isCommonDomain(mode);
+    this.byJob = isByJob(mode);
+    this.deep = isDeep(mode);
+    this.hardMode = isHardMode(mode);
   }
 
   private get includeSkills() {
-    return this.isHardMode;
+    return this.hardMode;
   }
 
   private get includeExperience() {
-    return this.isByJob;
+    return this.byJob;
   }
 
   private get includeQuestions() {
-    return this.isHardMode;
+    return this.hardMode;
   }
 
   private get includeImprovements() {
-    return this.isDeep;
+    return this.deep;
   }
 
   private buildOverallAnalysis(): Schema {
@@ -49,20 +42,20 @@ export class SchemaService {
     };
     const required = Object.keys(props);
 
-    if (this.isCommonDomain) {
+    if (this.commonDomain) {
       props.independentCvScore = PROPERTY_DEFINITIONS.overallAnalysis.independentCvScore;
     } else {
       props.independentTechCvScore =
         PROPERTY_DEFINITIONS.overallAnalysis.independentTechCvScore;
     }
 
-    if (this.isByJob) {
+    if (this.byJob) {
       props.matchScore = PROPERTY_DEFINITIONS.overallAnalysis.matchScore;
       props.jobTargetLevel = PROPERTY_DEFINITIONS.overallAnalysis.jobTargetLevel;
       props.levelMatch = PROPERTY_DEFINITIONS.overallAnalysis.levelMatch;
       required.push('jobTargetLevel', 'levelMatch');
 
-      if (this.isDeep) {
+      if (this.deep) {
         props.educationMatch = PROPERTY_DEFINITIONS.overallAnalysis.educationMatch;
         props.jobHoppingFlag = PROPERTY_DEFINITIONS.overallAnalysis.jobHoppingFlag;
         required.push('educationMatch', 'jobHoppingFlag');
@@ -82,7 +75,7 @@ export class SchemaService {
     };
     const required = Object.keys(props);
 
-    if (this.isByJob) {
+    if (this.byJob) {
       props.relevantYearsInCV =
         PROPERTY_DEFINITIONS.quantitativeMetrics.relevantYearsInCV;
       props.keySkillCoveragePercent =
@@ -92,7 +85,7 @@ export class SchemaService {
       required.push('requiredYearsInJob');
     }
 
-    if (this.isDeep) {
+    if (this.deep) {
       props.stackRecencyScore =
         PROPERTY_DEFINITIONS.quantitativeMetrics.stackRecencyScore;
       props.softSkillsScore = PROPERTY_DEFINITIONS.quantitativeMetrics.softSkillsScore;
@@ -113,7 +106,7 @@ export class SchemaService {
     };
     const required = Object.keys(props);
 
-    if (this.isByJob) {
+    if (this.byJob) {
       props.keywordOptimization = PROPERTY_DEFINITIONS.improvementComponents
         .keywordOptimization as Schema;
       required.push('keywordOptimization');
@@ -142,7 +135,7 @@ export class SchemaService {
     if (this.includeSkills) {
       const updatedDefinitions = produce(PROPERTY_DEFINITIONS, (draft) => {
         const skills = draft.detailedSkillAnalysis.properties.skills;
-        if (this.isDeep) {
+        if (this.deep) {
           skills.maxItems = skills.maxItems.replace(amountPlaceholder, '7');
         } else {
           skills.maxItems = skills.maxItems.replace(amountPlaceholder, '4');
@@ -160,7 +153,7 @@ export class SchemaService {
     if (this.includeExperience) {
       const updatedDefinitions = produce(PROPERTY_DEFINITIONS, (draft) => {
         const jobsProp = draft.experienceRelevanceAnalysis.properties.jobs;
-        if (this.isDeep) {
+        if (this.deep) {
           jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, '5');
         } else {
           jobsProp.maxItems = jobsProp.maxItems.replace(amountPlaceholder, '3');

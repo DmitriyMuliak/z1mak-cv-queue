@@ -1,4 +1,5 @@
 import type { Mode } from '../../types/mode';
+import { isHardMode } from '../utils/mode';
 
 export interface ModelChain {
   requestedModel: string;
@@ -6,8 +7,7 @@ export interface ModelChain {
 }
 
 export const resolveModelChain = (mode: Mode): ModelChain => {
-  const isHardPreferred =
-    mode.depth === 'deep' && mode.evaluationMode === 'byJob'
+  const isHardPreferred = isHardMode(mode);
 
   if (isHardPreferred) {
     return {
