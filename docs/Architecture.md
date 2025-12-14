@@ -1,25 +1,27 @@
+Звісно. Я перекладу цю секцію, зберігши технічний тон та докладність опису системи.
+
 # 🧱 1. **System Overview**
 
-Цей сервіс — окремий Docker-модуль, що складається з:
+This service is a separate Docker module, consisting of:
 
-| Компонент                    | Призначення                                                                                                               |
-| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
-| **Fastify API Server**       | Приймає запити на запуск AI job, обирає модель + fallback-ланцюжок, викликає Lua для user RPD + concurrency, backpressure |
-| **BullMQ Queue (lite/hard)** | Окремі черги для lite/hard режимів                                                                                        |
-| **Worker Pool**              | Виконує задачі, взаємодіє з AI, застосовує модельні RPM/RPD, керує retry                                                  |
-| **Redis**                    | Тимчасове зберігання job metadata, лічильники RPD/RPM, waiting counters, concurrency locks                                |
-| **DB Sync Cron**             | SCAN + батчевий перенос завершених job з Redis → persistent DB                                                            |
-| **Cleanup Cron**             | Прибирає orphan locks / stale jobs, повертає ліміти                                                                       |
+| Component                    | Purpose                                                                                                                          |
+| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure |
+| **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                              |
+| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                             |
+| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                        |
+| **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB                                                   |
+| **Cleanup Cron**             | Removes orphan locks / stale jobs, refunds limits                                                                                |
 
-Сервіс гарантує:
+The service guarantees:
 
-- **конкурентність лише в межах лімітів (per-user)**
-- **ізольований high-performance API**
-- **атомарність user RPD + concurrency в Redis (Lua)**
-- **fallback моделі на API-шарі до enqueue**
-- **автоматичні retry через BullMQ для retryable помилок**
-- **детерміноване збереження результатів у БД**
-- **стійкість до збоїв, рестартів, райдужних днів**
+- **Concurrency strictly within limits (per-user)**
+- **Isolated high-performance API**
+- **Atomic user RPD + concurrency in Redis (Lua)**
+- **Model fallback at the API layer prior to enqueue**
+- **Automatic retries via BullMQ for retryable errors**
+- **Deterministic persistence of results to the DB**
+- **Resilience to failures, restarts, and peak load scenarios**
 
 ---
 
@@ -43,37 +45,38 @@ flowchart TD
     P --> R2[Redis Job Result]
     R2 --> CRON[DB Sync Cron\nEvery 30 Seconds]
     CRON --> DB[(Persistent DB)]
-
 ```
 
 ---
 
 # ⚙️ 3. **Core Functional Goals**
 
-| Feature                           | Guarantee                                                                              |
-| :-------------------------------- | :------------------------------------------------------------------------------------- |
-| **Global Model Limits (RPM/RPD)** | Моделі не перевантажуються (списуються у воркері; RPM → delayed, RPD → fail)           |
-| **User Daily RPD (Fixed Window)** | API бере токен через Lua (до enqueue)                                                  |
-| **User Concurrency (ZSET TTL)**   | API тримає активні job-и з TTL ~31 хв, чистить зомбі в Lua і воркері                   |
-| **Queue Backpressure**            | Для кожної моделі є `queue:waiting:{model}` + динамічний `maxQueueLength` (~30 хв SLA) |
-| **Fallback**                      | Моделі автоматично зміщуються вниз по пріоритету **в API-шарі** до постановки в чергу  |
-| **Retry**                         | AI retryable → BullMQ delay; non-retryable/limit → негайний fail                       |
-| **Token Return**                  | Модельні токени повертаються при фінальному фейлі/відпрацюванні QueueEvents            |
-| **DB Persistence**                | Жодна job не губиться                                                                  |
-| **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                |
-| **Dynamic Worker Concurrency**    | Конкурентність воркерів читається з Redis, оновлюється через Pub/Sub + admin endpoint  |
-| **Scalability**                   | До 20–50k RPS без великих змін                                                         |
-| **Fault Tolerance**               | Worker crash → job requeued, lock auto-expire                                          |
+| Feature                           | Guarantee                                                                                            |
+| :-------------------------------- | :--------------------------------------------------------------------------------------------------- |
+| **Global Model Limits (RPM/RPD)** | Models are not overloaded (consumed in worker; RPM $\rightarrow$ delayed, RPD $\rightarrow$ fail)    |
+| **User Daily RPD (Fixed Window)** | API acquires token via Lua (pre-enqueue)                                                             |
+| **User Concurrency (ZSET TTL)**   | API maintains active jobs with $\text{TTL} \sim 31 \text{ min}$, cleans up zombies in Lua and worker |
+| **Queue Backpressure**            | Each model has `queue:waiting:{model}` + dynamic `maxQueueLength` ($\sim 30 \text{ min}$ SLA)        |
+| **Fallback**                      | Models automatically shift down in priority **at the API layer** before queuing                      |
+| **Retry**                         | AI retryable $\rightarrow$ BullMQ delay; non-retryable/limit $\rightarrow$ immediate fail            |
+| **Token Return**                  | Model tokens are refunded upon final failure/processing of QueueEvents                               |
+| **DB Persistence**                | No job is lost                                                                                       |
+| **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                              |
+| **Dynamic Worker Concurrency**    | Worker concurrency is read from Redis, updated via Pub/Sub + admin endpoint                          |
+| **Scalability**                   | Up to $\text{20–50k RPS}$ without major changes                                                      |
+| **Fault Tolerance**               | Worker crash $\rightarrow$ job requeued, lock auto-expire                                            |
 
 ---
 
 # 🔥 4. **API-Level Fallback FSM (Pre-Enqueue)**
 
-API-level fallback працює до enqueue і контролює:
+API-level fallback works prior to enqueue and controls:
 
-- user RPD (per mode) + concurrency
-- backpressure по моделі
-- доступність моделі (наявність limits)
+- User RPD (per mode) + concurrency
+- Model backpressure
+- Model availability (existence of limits)
+
+<!-- end list -->
 
 ```mermaid
 stateDiagram-v2
@@ -93,7 +96,7 @@ stateDiagram-v2
 
 # 👷‍♂️ 5. **Worker-Level FSM (Post-Enqueue)**
 
-Логіка **Fallback** відсутня. Логіка **Retry** повністю делегована BullMQ. Модельні ліміти застосовуються тут.
+**Fallback** logic is absent. **Retry** logic is fully delegated to BullMQ. Model limits are applied here.
 
 ```mermaid
 flowchart TD
@@ -121,9 +124,9 @@ flowchart TD
 
 # 🕒 6. **Timestamp Policy**
 
-Всі timestamp-и — UTC
+All timestamps are UTC
 
-Використовуються у Locks, Job Results, Per-User RPD
+Used in Locks, Job Results, Per-User RPD
 
 ---
 
@@ -189,52 +192,52 @@ job:{id}:result
 
 ---
 
-# 🧠 8. **Lua Scripts (Atomic Enforcement, тезисно)**
+# 🧠 8. **Lua Scripts (Atomic Enforcement, Summary)**
 
-- `combinedCheckAndAcquire` (API): чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, робить pre-check модельного RPD (без списання); повертає код (OK / CONCURRENCY / USER_RPD / MODEL_RPD).
-- `consumeExecutionLimits` (Worker): атомарно перевіряє модельні RPM/RPD та (опційно) user RPD; при RPM повертає код для delay, при RPD — код для fail.
+- `combinedCheckAndAcquire` (API): cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, performs a model RPD pre-check (without consumption); returns code (OK / CONCURRENCY / USER_RPD / MODEL_RPD).
+- `consumeExecutionLimits` (Worker): atomically checks model RPM/RPD and (optionally) user RPD; on RPM overage, returns code for delay; on RPD overage, returns code for fail.
 
 ---
 
-# 🏗️ 9. **Worker Execution Pipeline** (актуальна)
+# 🏗️ 9. **Worker Execution Pipeline** (Current)
 
-1.  Позначає job “in_progress” (`job:meta`).
-2.  Викликає **`ModelProviderService.execute`** (виконує лише одну модель).
-3.  Якщо **успіх** → записує результат (`job:result`) та **видаляє concurrency lock**.
-4.  Якщо **retryable (500/503/504/інші тимчасові)** → кидає виняток, **BullMQ** робить backoff retry (attempts=2).
-5.  Якщо **не-retryable (400/403/404/429/500 context-too-long)** → `UnrecoverableError` → BullMQ ставить `failed` одразу.
-6.  **`queueEvents.on('failed')`** спрацьовує → **повертає токени** (`returnTokens`) та записує фінальний статус `failed`.
+1.  Marks job as "in_progress" (`job:meta`).
+2.  Calls **`ModelProviderService.execute`** (executes only one model).
+3.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
+4.  If **retryable (500/503/504/other temporary errors)** $\rightarrow$ throws exception, **BullMQ** performs backoff retry ($\text{attempts}=2$).
+5.  If **non-retryable (400/403/404/429/500 context-too-long)** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed` immediately.
+6.  **`queueEvents.on('failed')`** is triggered $\rightarrow$ **refunds tokens** (`returnTokens`) and records final `failed` status.
 
 ---
 
 # 📦 10. **DB Sync Architecture**
 
-Cron (30 seconds):
+Cron ($\text{30 seconds}$):
 
-1.  `SCAN job:*:result` батчами (chunk 200)
-2.  merge(meta + result)
-3.  batch insert → DB (upsert)
+1.  `SCAN job:*:result` in batches ($\text{chunk } 200$)
+2.  merge($\text{meta} + \text{result}$)
+3.  batch insert $\rightarrow$ DB ($\text{upsert}$)
 4.  delete Redis keys
 
 Guarantees:
 
-- DB never overloaded (batch writes)
+- DB never overloaded ($\text{batch writes}$)
 - Redis remains light
-- no duplicates (idempotent writes)
+- no duplicates ($\text{idempotent writes}$)
 
 ---
 
 # 🧨 11. **Failure Modes**
 
-| Failure              | Behaviour                                                                     |
-| :------------------- | :---------------------------------------------------------------------------- |
-| Redis down           | System permissive, auto-recovery                                              |
-| Worker crash         | job requeued, lock auto-expires                                               |
-| API crash            | stateless, locks unaffected                                                   |
-| DB temporary down    | Redis keeps data until next sync                                              |
-| Cron failure         | next run resumes processing                                                   |
-| **Final Job Failed** | **Модельні токени повертаються; status=failed записується**                   |
-| Stale jobs           | Cron `expireStaleJobs` знімає waiting/locks/RPD, виставляє error_code=expired |
+| Failure              | Behaviour                                                                                  |
+| :------------------- | :----------------------------------------------------------------------------------------- |
+| Redis down           | System becomes permissive auto-recovery                                                    |
+| Worker crash         | Job requeued, lock auto-expires                                                            |
+| API crash            | Stateless, locks unaffected                                                                |
+| DB temporary down    | Redis retains data until next sync                                                         |
+| Cron failure         | Next run resumes processing                                                                |
+| **Final Job Failed** | **Model tokens are refunded; status=failed is recorded**                                   |
+| Stale jobs           | Cron `expireStaleJobs` removes waiting/locks/RPD, sets $\text{error\_code}=\text{expired}$ |
 
 ---
 
@@ -257,9 +260,9 @@ Guarantees:
 
 - Redis connectivity
 - BullMQ queue status
-- worker count
-- memory & CPU
-- uptime
+- Worker count
+- Memory & CPU
+- Uptime
 
 ---
 
@@ -275,11 +278,10 @@ API & Worker:
 
 ---
 
-# 📄 15. **Relation to README.md**
+# 📄 15. **Documentation**
 
-| File                | Purpose                                    |
-| :------------------ | :----------------------------------------- |
-| **README.md**       | User-facing overview, diagrams, usage      |
-| **Architecture.md** | Deep internal specification for developers |
-| **APIService**      | Info about API Service                     |
-| **docs/**           | MkDocs/GitBook extended documentation      |
+| File                | Purpose                                        |
+| :------------------ | :--------------------------------------------- |
+| **README.md**       | User-facing overview, diagrams, usage          |
+| **Architecture.md** | Deep internal specification for developers     |
+| **RateLimits**      | Info about main logic related to queue/limits. |

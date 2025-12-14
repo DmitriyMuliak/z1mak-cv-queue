@@ -6,7 +6,12 @@ import { resolveModelChain } from '../../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../../utils/time';
 import { AcquireCode } from '../../types/queueCodes';
 import { getModeType } from '../../utils/mode';
-import { JobIdParams, JobIdParamsSchema, RunAiJobBody, RunAiJobBodySchema } from './schema';
+import {
+  JobIdParams,
+  JobIdParamsSchema,
+  RunAiJobBody,
+  RunAiJobBodySchema,
+} from './schema';
 
 const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
 const MAX_WAIT_MINUTES = 30;

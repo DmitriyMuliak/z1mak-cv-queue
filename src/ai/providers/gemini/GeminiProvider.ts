@@ -39,7 +39,6 @@ export class GeminiProvider {
     });
 
     const responseSchema = new SchemaService(mode).getGenAiSchema();
-    
 
     try {
       const result = await this.client.models.generateContent({
@@ -81,7 +80,10 @@ export class GeminiProvider {
     if (mappedStatus === GEMINI_ERROR_MAP.INVALID_ARGUMENT.httpCode) return false;
     if (mappedStatus === GEMINI_ERROR_MAP.PERMISSION_DENIED.httpCode) return false;
     if (mappedStatus === GEMINI_ERROR_MAP.NOT_FOUND.httpCode) return false;
-    if (mappedStatus === GEMINI_ERROR_MAP.INTERNAL.httpCode && isContextTooLong(message)) {
+    if (
+      mappedStatus === GEMINI_ERROR_MAP.INTERNAL.httpCode &&
+      isContextTooLong(message)
+    ) {
       return false;
     }
 
@@ -106,17 +108,20 @@ export class GeminiProvider {
 
   private normalizeError(error: unknown): Error {
     const code = this.extractGeminiErrorCode(error);
-    const status = extractStatus(error) ?? (code ? GEMINI_ERROR_MAP[code]?.httpCode : undefined);
+    const status =
+      extractStatus(error) ?? (code ? GEMINI_ERROR_MAP[code]?.httpCode : undefined);
     const extractedMessage = extractMessage(error);
     const friendlyMessage =
       (isContextTooLong(extractedMessage) && code === 'INTERNAL'
         ? 'Gemini context too long'
-        : undefined) ??
-      (code ? GEMINI_ERROR_MESSAGES[code] : undefined);
+        : undefined) ?? (code ? GEMINI_ERROR_MESSAGES[code] : undefined);
 
     if (typeof status === 'number') {
       const err = new Error(
-        friendlyMessage ?? extractedMessage ?? (error as Error)?.message ?? 'Gemini provider error'
+        friendlyMessage ??
+          extractedMessage ??
+          (error as Error)?.message ??
+          'Gemini provider error'
       );
       (err as any).status = status;
       return err;

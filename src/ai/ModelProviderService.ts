@@ -22,9 +22,7 @@ export interface ModelJobResult {
 export class ModelProviderService {
   private modelProvider: ModelProvider;
 
-  constructor(
-    modelProvider: ModelProvider = new GeminiProvider()
-  ) {
+  constructor(modelProvider: ModelProvider = new GeminiProvider()) {
     this.modelProvider = modelProvider;
   }
 

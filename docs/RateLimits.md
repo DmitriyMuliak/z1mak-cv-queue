@@ -1,56 +1,71 @@
-# 🚦 Rate limits, черги та конкуренція
+Цей опис детально розкриває механізм управління навантаженням. Я перекладу його, зберігаючи високий рівень технічної точності, як ви просили.
 
-Цей проєкт обмежує навантаження на зовнішній AI‑провайдер і користувачів через три рівні: перевірки в API (Lua), контроль беклогу в API та списання лімітів у воркері. BullMQ використовується без вбудованого rate limiter; замість цього працюють наші Redis‑лічильники й динамічна конкуренція.
+# 🚦 Rate Limits, Queues, and Concurrency
 
-## Потік запиту
+This project limits the load on the external AI provider and users through three levels: checks in the API (Lua), backlog control in the API, and limit consumption in the worker. BullMQ is used without an integrated rate limiter; instead, we rely on our Redis counters and dynamic concurrency.
 
-1) **API (`/resume/analyze`)**  
-   - Викликає Lua `combinedCheckAndAcquire` з параметрами `userId`, `model`, `modeType`, тощо.  
-   - Перевіряє та резервує:
-     - `user:rpd:*` (денна квота користувача),
-     - `user:active_jobs` (конкурентність користувача),
-     - `model:rpd` (денна квота моделі).
-   - Обчислює `maxQueueLength` з урахуванням RPM/RPD та середньої тривалості, інкрементує `queue:waiting:{model}` і відсікає `QUEUE_FULL` при перевищенні.  
-   - Додає job у BullMQ.
+## Request Flow
 
-2) **BullMQ worker (`src/worker.ts`)**  
-   - Конкурентність воркера задається при створенні `Worker` (див. `DEFAULT_CONCURRENCY` і динамічне оновлення через Redis канал `configUpdate`).
-   - Перед виконанням списує ліміти моделі через Lua `consumeExecutionLimits`:
-     - `model:rpm` (хвилинний ліміт),
-     - `model:rpd` (денний ліміт).
-   - Якщо RPM перевищено — переносить job у `delayed` на TTL ключа RPM; якщо RPD або користувацькі денні ліміти — кидає `UnrecoverableError` (без ретраїв).
-   - Після успіху / фінального фейлу: декремент `queue:waiting:{model}`, повернення токенів за потреби, оновлення метаданих/результату.
+1.  **API (`/resume/analyze`)**
+    - Calls the Lua script `combinedCheckAndAcquire` with parameters like `userId`, `model`, `modeType`, etc.
+    - Checks and reserves:
+      - `user:rpd:*` (User Daily Rate Per Day quota),
+      - `user:active_jobs` (User concurrency),
+      - `model:rpd` (Model Daily RPD quota).
+    - Calculates `maxQueueLength` based on RPM/RPD and average duration, increments `queue:waiting:{model}`, and rejects with `QUEUE_FULL` if exceeded.
+    - Adds the job to BullMQ.
 
-3) **Cron (`src/cron.ts`)**  
-   - `expireStaleJobs`: видаляє завислі waiting/delayed job’и, повертає ліміти й декрементує `queue:waiting:{model}` для неактивних задач старших за SLA. Active job не чіпає, щоб не конфліктувати з живими воркерами.
-   - Інші таски: синхронізація лімітів моделей із БД, прибирання сирітських ключів.
+2.  **BullMQ worker (`src/worker.ts`)**
+    - Worker concurrency is set during `Worker` creation (see `DEFAULT_CONCURRENCY` and dynamic updates via the Redis channel `configUpdate`).
+    - Before execution, consumes model limits via the Lua script `consumeExecutionLimits`:
+      - `model:rpm` (Rate Per Minute limit),
+      - `model:rpd` (Daily RPD limit).
+    - If RPM is exceeded $\rightarrow$ job is moved to `delayed` for the duration of the RPM key's TTL; if RPD or user daily limits are exceeded $\rightarrow$ throws `UnrecoverableError` (no retries).
+    - Upon success / final failure: decrements `queue:waiting:{model}`, refunds tokens if necessary, updates metadata/result.
 
-## Ключові Lua‑скрипти
+3.  **Cron (`src/cron.ts`)**
+    - `expireStaleJobs`: removes stuck waiting/delayed jobs, refunds limits, and decrements `queue:waiting:{model}` for inactive tasks older than the SLA. Active jobs are not touched to avoid conflict with live workers.
+    - Other tasks: synchronization of model limits with the DB, cleanup of orphan keys.
 
-- **`combinedCheckAndAcquire.lua`** (API): атомарно перевіряє/резервує user RPD, user concurrency, model RPD. Не списує model RPM/RPD.  
-  Виклик у `src/routes/resume/resume.ts`:
+## Key Lua Scripts
+
+- **`combinedCheckAndAcquire.lua`** (API): Atomically checks/reserves user RPD, user concurrency, and model RPD. It does _not_ consume model RPM/RPD.
+  Invocation in `src/routes/resume/resume.ts`:
+
   ```ts
   const code = await fastify.redis.combinedCheckAndAcquire(
     [userRpdKey, userActiveKey, modelRpdKey],
-    [userDayLimit, concurrencyLimit, dayTtl, CONCURRENCY_TTL_SECONDS, 1, now, jobId, modelRpd, dayTtl]
+    [
+      userDayLimit,
+      concurrencyLimit,
+      dayTtl,
+      CONCURRENCY_TTL_SECONDS,
+      1,
+      now,
+      jobId,
+      modelRpd,
+      dayTtl,
+    ]
   );
   ```
 
-- **`consumeExecutionLimits.lua`** (worker): списує `model:rpm` і `model:rpd` перед викликом провайдера. Повертає `ModelRpmExceeded`, `ModelRpdExceeded` або `OK`.  
-  Виклик у `src/worker.ts`:
+- **`consumeExecutionLimits.lua`** (worker): Consumes `model:rpm` and `model:rpd` before calling the provider. Returns `ModelRpmExceeded`, `ModelRpdExceeded`, or `OK`.
+  Invocation in `src/worker.ts`:
+
   ```ts
   const consumeCode = await consumeModelLimits(model, { modelRpm, modelRpd });
   if (consumeCode === ConsumeCode.ModelRpmExceeded) moveToDelayed(...);
   if (consumeCode === ConsumeCode.ModelRpdExceeded) throw new UnrecoverableError(...);
   ```
 
-- **`returnTokensAtomic.lua`** (worker): повертає ліміти моделі при фейлах/відкочуванні токенів.
+- **`returnTokensAtomic.lua`** (worker): Refunds model limits upon failures/token rollbacks.
 
-- **`expireStaleJob.lua`** (cron): декрементує `queue:waiting:{model}`, прибирає job із `user:active_jobs`, повертає ліміти користувача, виставляє статуси `failed/expired`.
+- **`expireStaleJob.lua`** (cron): Decrements `queue:waiting:{model}`, removes job from `user:active_jobs`, refunds user limits, and sets `failed/expired` status.
 
-## Беклог‑ліміт
+## Backlog Limit
 
-У API після проходження Lua‑перевірок рахується максимально допустима черга для моделі:
+In the API, after passing the Lua checks, the maximum allowed queue length for the model is calculated:
+
 ```ts
 const maxQueueLength = computeMaxQueueLength(modelRpm, modelRpd, avgSeconds);
 const waitingKey = redisKeys.queueWaitingModel(selectedModel);
@@ -60,11 +75,13 @@ if (waitingCount > maxQueueLength) {
   return reply.status(429).send({ ok: false, error: 'QUEUE_FULL', message: ... });
 }
 ```
-Це обмежує кількість задач у системі для моделі, навіть якщо денний ліміт ще не вичерпано.
 
-## Конкурентність воркерів
+This limits the number of tasks in the system for a given model, even if the daily limit has not been exhausted.
 
-У `src/worker.ts` створюються два воркери (hard/lite) з власною concurrency:
+## Worker Concurrency
+
+In `src/worker.ts`, two workers (hard/lite) are created, each with its own concurrency:
+
 ```ts
 const DEFAULT_CONCURRENCY = { hard: 3, lite: 8 };
 const workers = {
@@ -72,61 +89,62 @@ const workers = {
   hard: createWorker(env.queueHardName, 'hard', DEFAULT_CONCURRENCY.hard),
 };
 ```
-Concurrency може змінюватись динамічно через Redis (`/admin/worker-concurrency`), а `refreshConcurrencyLoop` підхоплює зміни, закриває старий воркер і створює новий з оновленим значенням.
 
-## Поведінка при перевищенні лімітів
+Concurrency can be changed dynamically via Redis (`/admin/worker-concurrency`), and `refreshConcurrencyLoop` picks up the changes, closes the old worker, and creates a new one with the updated value.
 
-- **USER:RPD (API)**: 429 `USER_RPD_LIMIT`, job не додається.  
-- **USER:CONCURRENCY (API)**: 429 `CONCURRENCY_LIMIT`, job не додається.  
-- **MODEL:RPD (API)**: 429 `MODEL_LIMIT`, job не додається (soft‑gate, списання в воркері).  
-- **Queue backlog (API)**: 429 `QUEUE_FULL`, job не додається (лічильник `queue:waiting:{model}` > `maxQueueLength`).  
-- **MODEL:RPM (worker)**: `consumeExecutionLimits` повертає `ModelRpmExceeded` → job у `delayed` на TTL `model:rpm`.  
-- **MODEL:RPD (worker)**: `ModelRpdExceeded` → фінальний фейл із `UnrecoverableError` (без ретраю).  
-- **Provider errors**: retry/фатальність визначає провайдер (Gemini) через `isRetryableError`; фатальні помилки з `retryable=false` перетворюються на `UnrecoverableError`.
+## Behavior on Limit Exceeded
 
-## Основні Redis‑ключі та TTL
+- **USER:RPD (API)**: 429 `USER_RPD_LIMIT`, job not added.
+- **USER:CONCURRENCY (API)**: 429 `CONCURRENCY_LIMIT`, job not added.
+- **MODEL:RPD (API)**: 429 `MODEL_LIMIT`, job not added (soft-gate, consumption is in the worker).
+- **Queue backlog (API)**: 429 `QUEUE_FULL`, job not added (`queue:waiting:{model}` counter \> `maxQueueLength`).
+- **MODEL:RPM (worker)**: `consumeExecutionLimits` returns `ModelRpmExceeded` $\rightarrow$ job to `delayed` for the `model:rpm` TTL.
+- **MODEL:RPD (worker)**: `ModelRpdExceeded` $\rightarrow$ final failure with `UnrecoverableError` (no retry).
+- **Provider errors**: retry/fatal nature is determined by the provider (Gemini) via `isRetryableError`; fatal errors with `retryable=false` become `UnrecoverableError`.
 
-- `model:rpm:{model}` — хвилинний ліміт моделі. TTL: ~70 c (`MINUTE_TTL`). Списується у воркері, TTL використовується як delay при перевищенні.  
-- `model:rpd:{model}` — денний ліміт моделі. TTL: до кінця дня PT (`getSecondsUntilMidnightPT`). Резервується в API, списується у воркері, повертається при фейлах.  
-- `user:{userId}:rpd:{type}:{date}` — денний ліміт користувача (hard/lite). TTL: до кінця дня PT. Резерв/списання в API/воркері, повернення у воркері/cron.  
-- `user:{userId}:active_jobs` — активні/ожидаючі job користувача. Без TTL; очищається по завершенню/cron.  
-- `queue:waiting:{model}` — лічильник беклогу моделі. Без TTL; інкремент у API, декремент у воркері/cron.  
-- `job:{jobId}:meta` / `job:{jobId}:result` — метадані та результати job (без TTL за замовчуванням).  
-- `CONCURRENCY_TTL_SECONDS` (1860 c) — TTL слота конкурентності в `combinedCheckAndAcquire`.  
-- `dayTtl` — `getSecondsUntilMidnightPT()` для всіх денних лімітів/expire.
+## Core Redis Keys and TTLs
 
-## Облік виклику провайдера (provider_completed)
+- `model:rpm:{model}` — Model's minute limit. TTL: \~70s (`MINUTE_TTL`). Consumed in the worker, TTL used as delay on overage.
+- `model:rpd:{model}` — Model's daily limit. TTL: until end of day PT (`getSecondsUntilMidnightPT`). Reserved in API, consumed in worker, refunded on failure.
+- `user:{userId}:rpd:{type}:{date}` — User's daily limit (hard/lite). TTL: until end of day PT. Reserved/consumed in API/worker, refunded in worker/cron.
+- `user:{userId}:active_jobs` — User's active/waiting jobs. No TTL; cleared upon completion/cron.
+- `queue:waiting:{model}` — Model backlog counter. No TTL; incremented in API, decremented in worker/cron.
+- `job:{jobId}:meta` / `job:{jobId}:result` — Job metadata and results (no TTL by default).
+- `CONCURRENCY_TTL_SECONDS` (1860s) — TTL for the concurrency slot in `combinedCheckAndAcquire`.
+- `dayTtl` — `getSecondsUntilMidnightPT()` for all daily limits/expire.
 
-Щоб не рефандити модельні токени після успішного зовнішнього виклику, воркер виставляє `provider_completed=false` у `jobMeta` перед `generate()` і `provider_completed=true` після успіху.  
-У `failed`/cron повернення токенів виконується лише якщо `provider_completed !== 'true'`.
+## Provider Invocation Accounting (`provider_completed`)
 
-## Контроль швидкості черги
+To avoid refunding model tokens after a successful external call, the worker sets `provider_completed=false` in `jobMeta` before `generate()` and `provider_completed=true` upon success.
+Token refunds in `failed`/cron only execute if `provider_completed !== 'true'`.
 
-- **Конкурентність воркерів:** `DEFAULT_CONCURRENCY` для hard/lite, динамічно оновлюється через `/admin/worker-concurrency` і `refreshConcurrencyLoop` (воркер перезапускається з новим concurrency).  
-- **Model RPM:** списується у воркері перед викликом; при перевищенні job переводиться в `delayed` на TTL `model:rpm`, тим самим throttle’иться швидкість споживання черги без втрати задач.  
-- **Беклог‑ліміт:** `queue:waiting:{model}` + `maxQueueLength` відсікає надлишкові POST у піку.  
-Це поєднання задає фактичну швидкість: API обмежує вхідний потік і беклог, воркер/TTL на `model:rpm` вирівнює миттєвий темп викликів до зовнішнього провайдера.
+## Queue Speed Control
 
-### Як оцінити швидкість обробки
+- **Worker Concurrency:** `DEFAULT_CONCURRENCY` for hard/lite, dynamically updated via `/admin/worker-concurrency` and `refreshConcurrencyLoop` (worker restarts with new concurrency).
+- **Model RPM:** consumed in the worker before invocation; on overage, the job is moved to `delayed` for the duration of the `model:rpm` TTL, thus throttling the consumption rate without losing tasks.
+- **Backlog Limit:** `queue:waiting:{model}` + `maxQueueLength` prunes excessive POSTs during peak load.
+  This combination dictates the actual speed: the API limits the input stream and backlog, while the worker/TTL on `model:rpm` smooths out the instantaneous rate of calls to the external provider.
 
-- Середній час обробки job ≈ `T` секунд (реальний середній час виклику моделі). Для орієнтиру: hard ≈ 25 с, lite ≈ 15 с (див. `AVG_SECONDS`).  
-- Фактичний темп воркера ≈ `concurrency / T` job/сек на процес; сумарно по всіх воркерах — множити на кількість процесів.  
-- Обмеження MODEL:RPM у воркері робить додатковий throttle: якщо `concurrency / T` > `model:rpm`, надлишок піде в `delayed` на TTL RPM.  
-- API не дасть наростити чергу понад `maxQueueLength` (залежить від RPM/RPD і середнього часу).  
-Тож реальний темп = `min(concurrency/T, model:rpm)` (з поправкою на кількість воркерів), а максимальний беклог ≈ `maxQueueLength` на модель.
+### How to Estimate Processing Speed
 
-## Чому не використовуємо вбудований BullMQ rate limiter
+- Average job processing time $\approx$ $T$ seconds (actual average model call time). For reference: hard $\approx 25$s, lite $\approx 15$s (see `AVG_SECONDS`).
+- Actual worker pace $\approx$ $concurrency / T$ jobs/sec per process; multiply by the number of processes for the total.
+- The MODEL:RPM limit in the worker adds an additional throttle: if $concurrency / T$ \> $model:rpm$, the excess will go to `delayed` for the RPM TTL.
+- The API will not allow the queue to grow beyond `maxQueueLength` (dependent on RPM/RPD and average time).
+  Therefore, the real pace $\approx min(concurrency/T, model:rpm)$ (adjusted for the number of workers), and the maximum backlog $\approx maxQueueLength$ per model.
 
-- Нам потрібні окремі ліміти за моделлю та користувачем (RPD/RPM, concurrency), а вбудований лімітер задає один глобальний темп на чергу.  
-- Ми робимо відкладення job на TTL `model:rpm` та рефанди токенів при технічних збоях; це точніше контролюється через власні Lua й ключі.  
-- Беклог‑ліміт і денні квоти моделі/користувача застосовуються ще в API, до черги; BullMQ лімітер цю бізнес-логіку не врахує.  
-- За потреби можна додати BullMQ limiter як грубий глобальний “стопер”, але наразі кастомні ліміти точніше відповідають вимогам.
+## Why Built-in BullMQ Rate Limiter is Not Used
 
-## Логіка чому система працює саме так
+- We need separate limits per model and per user (RPD/RPM, concurrency), whereas the built-in limiter sets one global pace for the queue.
+- We implement job deferral based on `model:rpm` TTL and token refunds on technical failures; this is more precisely controlled through our own Lua scripts and keys.
+- Backlog limits and daily quotas for the model/user are applied in the API, before the queue; the BullMQ limiter would not account for this business logic.
+- If necessary, the BullMQ limiter could be added as a crude global "stopper," but currently, custom limits better meet the requirements.
 
-- **API відсікає дорогі помилки користувача** (квоти, конкурентність) і робить лише soft‑gate по денній квоті моделі (RPD): `combinedCheckAndAcquire` перевіряє RPD, але фактичне списання моделі відбувається вже у воркері, тож у піку можемо покласти трохи “зайвих” job до розміру беклог‑буфера. Хвилинний RPM моделі не ріжеться в API.  
-- **Воркер контролює миттєву швидкість (RPM) і денний ліміт моделі** там, де видно реальне виконання, і може відкласти/повернути токени.  
-- **Беклог‑ліміт** обмежує “хвіст” задач при повільних моделях і захищає від накопичення надлишків між API і воркером.  
-- **Cron** прибирає зомбі та повертає ліміти, щоб ключі залишалися консистентними після збоїв.
+## Rationale for this System Design
 
-Ця схема дозволяє масштабувати воркери (змінюючи concurrency) без ризику перебити зовнішні ліміти: кожне завдання проходить модельні ліміти на вході й перед виконанням, а беклог тримає чергу під контролем.
+- **The API filters out costly user errors** (quotas, concurrency) and only applies a soft-gate for the model's daily quota (RPD): `combinedCheckAndAcquire` checks RPD, but actual model consumption happens in the worker, so at peak, we can place a few "extra" jobs up to the backlog buffer size. The model's minute RPM is not cut in the API.
+- **The Worker controls the instantaneous speed (RPM) and the model's daily limit** at the point of actual execution, and can defer/refund tokens.
+- **The Backlog Limit** restricts the task "tail" for slow models and protects against accumulating excesses between the API and the worker.
+- **Cron** cleans up zombies and refunds limits to ensure key consistency after failures.
+
+This scheme allows workers to be scaled (by changing concurrency) without risking exceeding external limits: every task passes model limits at the entry point and before execution, and the backlog keeps the queue under control.

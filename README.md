@@ -1,38 +1,40 @@
+Чудовий опис. Переклад з урахуванням технічної термінології та збереженням структури Markdown:
+
 # 🚀 **AI Jobs Service — Queue + Worker + API Backend**
 
-Цей сервіс — це ядро системи виконання AI-аналізу.
-Він обробляє задачі з урахуванням:
+This service is the core of the AI analysis execution system.
+It processes jobs considering:
 
-- модельних лімітів (RPM / RPD) — застосовує воркер
-- лімітів користувачів (daily RPD) + concurrency — застосовує API через Lua
-- backpressure по моделі (queue:waiting + динамічний maxQueueLength)
-- fallback моделей (до enqueue)
-- retry (BullMQ-native)
-- atomic Redis Lua scripts
-- durable job result state
-- batch DB synchronization
-- HTTP API для запуску задач
+- **Model Limits** (RPM / RPD) — enforced by the worker
+- **User Limits** (daily RPD) + **Concurrency** — enforced by the API via Lua
+- **Model Backpressure** (`queue:waiting` + dynamic `maxQueueLength`)
+- **Model Fallback** (prior to enqueue)
+- **Retry** (BullMQ-native)
+- **Atomic Redis Lua scripts**
+- **Durable Job Result State**
+- **Batch DB Synchronization**
+- **HTTP API** for starting jobs
 
-> **Це НЕ Next.js API.**
-> Next.js лише проксить запити в цей сервіс.
-
----
-
-# 📚 Зміст
-
-1. Архітектура
-2. Потік даних
-3. Redis структури
-4. Lua скрипти (atomic)
-5. HTTP API (Fastify)
-6. Worker pipeline
-7. Cron tasks
-8. Health check
-9. Graceful shutdown
+> **This is NOT a Next.js API.**
+> Next.js only proxies requests to this service.
 
 ---
 
-# 🧩 1. Архітектурна діаграма
+# 📚 Table of Contents
+
+1.  Architecture
+2.  Data Flow
+3.  Redis Structures
+4.  Lua Scripts (Atomic)
+5.  HTTP API (Fastify)
+6.  Worker Pipeline
+7.  Cron Tasks
+8.  Health Check
+9.  Graceful Shutdown
+
+---
+
+# 🧩 1. Architecture Diagram
 
 ```mermaid
 flowchart LR
@@ -60,26 +62,26 @@ flowchart LR
 
 ---
 
-# 🔄 2. Потоки даних
+# 🔄 2. Data Flows
 
 ### **1) HTTP API receive job**
 
-- Валідація payload, вибір моделі + fallback
-- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock + модельний RPD pre-check
-- Backpressure: `queue:waiting:{model}` не перевищує динамічний maxQueueLength (~30 хв SLA) і не більше ніж model RPD
-- Запис job meta, enqueue у lite/hard
+- Payload validation, model selection + fallback
+- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock + model RPD pre-check
+- Backpressure: `queue:waiting:{model}` does not exceed dynamic `maxQueueLength` (\~30 min SLA) and is not greater than model RPD
+- Write job meta, enqueue into lite/hard queue
 
 ### **2) Worker execution**
 
-- Lua `consumeExecutionLimits`: модельні RPM/RPD (user RPD=0, бо списано в API)
-- Якщо RPM перевищено — delayed; якщо RPD перевищено — fail
-- Виклик AI, запис результату, зняття лічильників/локів
+- Lua `consumeExecutionLimits`: model RPM/RPD (user RPD=0, as it was already deducted in the API)
+- If RPM is exceeded — delayed; if RPD is exceeded — fail
+- Call AI, record result, release counters/locks
 
 ### **3) Cron**
 
-- SCAN job:\*:result → батч upsert у БД, видалення ключів
-- cleanup orphan locks
-- expireStaleJobs (довгі waiting/delayed → expired, зняття лічильників)
+- SCAN `job:*:result` $\rightarrow$ batch upsert to DB, delete keys
+- Cleanup orphan locks
+- `expireStaleJobs` (long waiting/delayed $\rightarrow$ expired, release counters)
 
 ### **3) DB sync**
 
@@ -87,15 +89,15 @@ flowchart LR
 Redis Results → Batch Cron → DB
 ```
 
-### **4) Динамічний concurrency воркерів**
+### **4) Dynamic Worker Concurrency**
 
-- Поточні значення читаються з Redis `config:worker:{lite|hard}:concurrency`.
-- Адмін може оновити через `/admin/worker-concurrency`; воркери одразу підхоплюють через Pub/Sub `config:update`.
-- Дефолти: lite=8, hard=3 (якщо ключі відсутні).
+- Current values are read from Redis `config:worker:{lite|hard}:concurrency`.
+- Admin can update via `/admin/worker-concurrency`; workers immediately pick up the change via Pub/Sub `config:update`.
+- Defaults: `lite=8`, `hard=3` (if keys are absent).
 
 ---
 
-# 🗄 3. Redis Структури
+# 🗄 3. Redis Structures
 
 ### Model Limits
 
@@ -139,20 +141,20 @@ job:{id}:result
 
 ---
 
-# 🔥 4. Lua Скрипти (тезисно)
+# 🔥 4. Lua Scripts (Summary)
 
-- `combinedCheckAndAcquire`: чистить зомбі-локи, перевіряє user RPD + concurrency, ставить lock у ZSET, інкрементує user RPD, перевіряє модельний RPD (без списання); повертає код OK / CONCURRENCY / USER_RPD / MODEL_RPD.
-- `consumeExecutionLimits`: атомарно перевіряє та споживає модельні RPM/RPD
+- `combinedCheckAndAcquire`: cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, checks model RPD (without consuming); returns code OK / CONCURRENCY / USER_RPD / MODEL_RPD.
+- `consumeExecutionLimits`: atomically checks and consumes model RPM/RPD.
 
 ---
 
 # 🛰 5. HTTP API (Fastify)
 
-Цей сервіс має HTTP API для інтеграції з Next.js / іншими бекендами.
+This service has an HTTP API for integration with Next.js / other backends.
 
 ## POST `/resume/analyze`
 
-Запускає аналіз.
+Starts the analysis.
 
 ### Payload:
 
@@ -164,28 +166,28 @@ job:{id}:result
 }
 ```
 
-### Логіка:
+### Logic:
 
-1. Lua: user RPD (per mode) + concurrency lock
-2. Вибір моделі + fallback (до enqueue)
-3. Backpressure per model (`queue:waiting:{model}` + динамічний cap)
-4. Job enqueue у lite/hard
-5. Повернення `{ jobId }`
+1.  Lua: user RPD (per mode) + concurrency lock
+2.  Model selection + fallback (prior to enqueue)
+3.  Backpressure per model (`queue:waiting:{model}` + dynamic cap)
+4.  Job enqueue into lite/hard queue
+5.  Return `{ jobId }`
 
 ---
 
 ## GET `/resume/:id/status`
 
-Повертає:
+Returns:
 
-- queued
-- in_progress
-- completed
-- failed
+- `queued`
+- `in_progress`
+- `completed`
+- `failed`
 
 ## GET `/resume/:id/result`
 
-Повертає:
+Returns:
 
 ```ts
 {
@@ -199,7 +201,7 @@ job:{id}:result
 
 ## POST `/admin/worker-concurrency`
 
-Оновлює конкурентність воркерів без деплою (потрібен internal API key):
+Updates worker concurrency without deployment (requires internal API key):
 
 ```json
 { "queue": "lite" | "hard", "concurrency": 12 }
@@ -207,21 +209,21 @@ job:{id}:result
 
 ## GET `/health`
 
-Перевірка:
+Checks:
 
-- Redis доступ
+- Redis access
 - Queue paused
 - Worker alive
 - Memory/CPU usage
 
 ---
 
-# ⚙️ 6. Worker Logic (high level)
+# ⚙️ 6. Worker Logic (High Level)
 
-- consume модельні RPM/RPD (Lua `consumeExecutionLimits`)
-- retryable (500/503/504 тощо) → BullMQ retry/delay (attempts=2)
-- non-retryable (400/403/404/429/500 context-too-long) → UnrecoverableError → failed, повернення токенів, зняття локів
-- release waiting counter / active_jobs
+- Consume model RPM/RPD (Lua `consumeExecutionLimits`)
+- Retryable errors (500/503/504, etc.) $\rightarrow$ BullMQ retry/delay (`attempts=2`)
+- Non-retryable errors (400/403/404/429/500 context-too-long) $\rightarrow$ `UnrecoverableError` $\rightarrow$ failed, token refund, lock release
+- Release waiting counter / `active_jobs`
 
 ---
 
@@ -229,13 +231,13 @@ job:{id}:result
 
 ## **DB Sync Cron (every 30s)**
 
-1. SCAN `job:*:result`
-2. batch write в DB
-3. DEL processed Redis keys
+1.  SCAN `job:*:result`
+2.  Batch write to DB
+3.  DEL processed Redis keys
 
 ## **Model Limit Refresh (every X min)**
 
-Оновлює:
+Updates:
 
 ```
 model:{name}:limits
@@ -244,7 +246,7 @@ model:{name}:limits
 ## **Orphan Lock Cleanup (hourly)**
 
 - SCAN `user:*:active_jobs`
-- видаляє ті jobID, яких нема в BullMQ
+- Removes `jobID`s that are not present in BullMQ
 
 ---
 
@@ -278,6 +280,6 @@ process.on('SIGTERM', shutdown);
 
 ---
 
-# 🎉 Готово
+# 🎉 Finished
 
-Дякую що дочитали до кінця 💘
+Thank you for reading until the end 💘

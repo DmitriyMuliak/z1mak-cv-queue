@@ -9,7 +9,8 @@ import { HttpMockGeminiProvider } from './HttpMockGeminiProvider';
  *    which preloads this file and swaps the compiled GeminiProvider export in require.cache
  *    with HttpMockGeminiProvider that calls the mock-gemini HTTP server.
  */
-const geminiProviderPath = require.resolve('../../../src/ai/providers/gemini/GeminiProvider');
+const geminiProviderPath =
+  require.resolve('../../../src/ai/providers/gemini/GeminiProvider');
 const original = require.cache[geminiProviderPath];
 if (original) {
   original.exports = { GeminiProvider: HttpMockGeminiProvider };
