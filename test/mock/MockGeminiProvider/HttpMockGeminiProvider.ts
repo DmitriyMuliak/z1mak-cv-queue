@@ -1,5 +1,5 @@
-import type { Mode } from '../../types/mode';
-import { extractStatus } from '../ai/utils/errorUtils';
+import type { Mode } from '../../../types/mode';
+import { extractStatus } from '../../../src/ai/utils/errorUtils';
 
 export class HttpMockGeminiProvider {
   private readonly baseUrl: string;

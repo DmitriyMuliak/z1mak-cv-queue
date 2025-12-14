@@ -7,7 +7,7 @@ export interface ModelChain {
 
 export const resolveModelChain = (mode: Mode): ModelChain => {
   const isHardPreferred =
-    mode.depth === 'deep' || (mode.evaluationMode === 'byJob' && mode.domain === 'it');
+    mode.depth === 'deep' && mode.evaluationMode === 'byJob'
 
   if (isHardPreferred) {
     return {

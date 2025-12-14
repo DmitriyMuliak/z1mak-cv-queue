@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../../../types/mode';
 
 const app = Fastify({ logger: false });
 
