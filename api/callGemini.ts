@@ -1,6 +1,7 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import { SchemaService } from '../src/ai/schema/SchemaService';
 import { Mode } from '../types/mode';
+import { OrderedListBuilder } from '../src/ai/providers/gemini/utils';
 
 // https://ai.google.dev/gemini-api/docs/models
 // Rate Limits - https://ai.google.dev/gemini-api/docs/rate-limits?authuser=3
@@ -38,10 +39,6 @@ export const callGeminiAi = async ({
   const schemaService = new SchemaService(mode);
   const responseSchema = schemaService.getGenAiSchema();
 
-  // TODO: handle
-  // 1- ApiError: {"error":{"code":503,"message":"The model is overloaded. Please try again later.","status":"UNAVAILABLE"}}
-  // 2- 429 Too Many Requests {"code":429,"message":"You exceeded your current quota, please check your plan and billing
-
   try {
     const result = await client.models.generateContent({
       model: geminiModels.flashLite,
@@ -59,8 +56,6 @@ export const callGeminiAi = async ({
         safetySettings,
       },
     });
-
-    console.log('GEMINI result', result);
 
     return result.text;
   } catch (error) {
@@ -278,19 +273,3 @@ const safetySettings = [
   },
 ];
 
-class OrderedListBuilder {
-  private count = 1;
-  private list: string[] = [];
-
-  add(text: string): void {
-    this.list.push(`${this.count++}. ${text}`);
-  }
-
-  getList(): string[] {
-    return this.list;
-  }
-
-  reset(): void {
-    this.count = 1;
-  }
-}

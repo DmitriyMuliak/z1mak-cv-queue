@@ -6,6 +6,7 @@ import { createRedisClient } from './redis/client';
 import { ModelProviderService } from './ai/ModelProviderService';
 import { getSecondsUntilMidnightPT } from './utils/time';
 import type { Mode } from '../types/mode';
+import { ConsumeCode } from '../types/queueCodes';
 
 type ModeType = 'hard' | 'lite';
 
@@ -22,13 +23,6 @@ interface JobPayload {
   };
   role: 'user' | 'admin';
   modeType: ModeType;
-}
-
-enum ConsumeCode {
-  OK = 1,
-  ModelRpmExceeded = -1,
-  ModelRpdExceeded = -2,
-  UserRpdExceeded = -3,
 }
 
 const redis = createRedisClient();

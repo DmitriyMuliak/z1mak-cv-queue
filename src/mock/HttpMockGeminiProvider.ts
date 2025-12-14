@@ -1,4 +1,5 @@
 import type { Mode } from '../../types/mode';
+import { extractStatus } from '../ai/utils/errorUtils';
 
 export class HttpMockGeminiProvider {
   private readonly baseUrl: string;
@@ -40,5 +41,11 @@ export class HttpMockGeminiProvider {
     }
 
     return data.text;
+  }
+
+  isRetryableError(error: unknown): boolean {
+    const status = extractStatus(error);
+    if (status !== undefined && status >= 400 && status < 500) return false;
+    return true;
   }
 }
