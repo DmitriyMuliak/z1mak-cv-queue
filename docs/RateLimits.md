@@ -21,7 +21,7 @@ This project limits the load on the external AI provider and users through three
     - If RPM is exceeded $\rightarrow$ job is moved to `delayed` for the duration of the RPM key's TTL; if RPD or user daily limits are exceeded $\rightarrow$ throws `UnrecoverableError` (no retries).
     - Upon success / final failure: decrements `queue:waiting:{model}`, refunds tokens if necessary, updates metadata/result.
 
-3.  **Cron (`src/cron.ts`)**
+3.  **Cron (`src/cron/index.ts`)**
     - `expireStaleJobs`: removes stuck waiting/delayed jobs, refunds limits, and decrements `queue:waiting:{model}` for inactive tasks older than the SLA. Active jobs are not touched to avoid conflict with live workers.
     - Other tasks: synchronization of model limits with the DB, cleanup of orphan keys.
 

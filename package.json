@@ -8,7 +8,7 @@
     "start": "node dist/server.js",
     "start:api": "node dist/server.js",
     "start:worker": "node dist/src/worker/index.js",
-    "start:cron": "node dist/cron.js",
+    "start:cron": "node dist/src/cron/index.js",
     "start:worker:mock": "node -r ./dist/test/mock/MockGeminiProvider/registerGeminiMock.js dist/src/worker/index.js",
     "docker:up": "docker compose up --build",
     "lint": "ESLINT_USE_FLAT_CONFIG=0 eslint \"{src,api,types}/**/*.ts\"",
