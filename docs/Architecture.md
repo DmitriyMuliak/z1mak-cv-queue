@@ -1,5 +1,3 @@
-Звісно. Я перекладу цю секцію, зберігши технічний тон та докладність опису системи.
-
 # 🧱 1. **System Overview**
 
 This service is a separate Docker module, consisting of:

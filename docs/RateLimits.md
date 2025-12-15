@@ -1,5 +1,3 @@
-Цей опис детально розкриває механізм управління навантаженням. Я перекладу його, зберігаючи високий рівень технічної точності, як ви просили.
-
 # 🚦 Rate Limits, Queues, and Concurrency
 
 This project limits the load on the external AI provider and users through three levels: checks in the API (Lua), backlog control in the API, and limit consumption in the worker. BullMQ is used without an integrated rate limiter; instead, we rely on our Redis counters and dynamic concurrency.
