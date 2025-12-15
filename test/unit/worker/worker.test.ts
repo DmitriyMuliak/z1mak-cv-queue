@@ -46,7 +46,9 @@ describe('consumeLimitsIfNeeded', () => {
     redis.hset(redisKeys.modelLimits('m1'), { rpm: 10, rpd: 20 });
     consumeModelLimits.mockResolvedValue(ConsumeCode.ModelRpdExceeded);
 
-    await expect(consumeLimits(job as any, false)).rejects.toBeInstanceOf(UnrecoverableError);
+    await expect(consumeLimits(job as any, false)).rejects.toBeInstanceOf(
+      UnrecoverableError
+    );
   });
 
   it('marks tokens consumed when limits are OK', async () => {
@@ -106,7 +108,9 @@ describe('queueEvents failed handler', () => {
     expect(result.error_code).toBe('limit');
     expect(result.status).toBe('failed');
     expect(redis.zsets.get(redisKeys.userActiveJobs('u1'))?.has('j1')).toBeFalsy();
-    expect(redis.decrAndClampToZero).toHaveBeenCalledWith([redisKeys.queueWaitingModel('m1')]);
+    expect(redis.decrAndClampToZero).toHaveBeenCalledWith([
+      redisKeys.queueWaitingModel('m1'),
+    ]);
   });
 
   it('skips work on non-final attempts', async () => {
@@ -128,7 +132,9 @@ describe('queueEvents failed handler', () => {
 
 describe('finalizeFailure', () => {
   it('wraps non-retryable errors in UnrecoverableError', () => {
-    expect(() => finalizeFailure({ retryable: false, message: 'fatal' })).toThrow(UnrecoverableError);
+    expect(() => finalizeFailure({ retryable: false, message: 'fatal' })).toThrow(
+      UnrecoverableError
+    );
   });
 
   it('rethrows retryable errors as-is', () => {

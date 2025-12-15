@@ -57,8 +57,11 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return reply.status(429).send({ ok: false, error: selection.error });
       }
 
-      const { model: selectedModel, modelRpm: selectedModelRpm, modelRpd: selectedModelRpd } =
-        selection;
+      const {
+        model: selectedModel,
+        modelRpm: selectedModelRpm,
+        modelRpd: selectedModelRpd,
+      } = selection;
 
       const avgSeconds = modeType === 'hard' ? AVG_SECONDS.hard : AVG_SECONDS.lite;
       const maxQueueLength = computeMaxQueueLength(
@@ -149,5 +152,3 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
     }
   );
 }
-
-

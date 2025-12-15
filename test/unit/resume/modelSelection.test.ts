@@ -28,7 +28,8 @@ const createMockRedis = (responses: AcquireCode[]): MockRedis => {
 
   return {
     hgetall: async (key: string) => limits.get(key) ?? {},
-    combinedCheckAndAcquire: async () => responses.shift() ?? AcquireCode.ModelRpdExceeded,
+    combinedCheckAndAcquire: async () =>
+      responses.shift() ?? AcquireCode.ModelRpdExceeded,
   };
 };
 
@@ -61,7 +62,12 @@ describe('selectAvailableModel', () => {
       concurrencyTtlSeconds: 100,
     });
 
-    expect(res).toEqual({ status: 'selected', model: 'm1', modelRpm: 100, modelRpd: 100 });
+    expect(res).toEqual({
+      status: 'selected',
+      model: 'm1',
+      modelRpm: 100,
+      modelRpd: 100,
+    });
   });
 
   it('skips model when model RPD exceeded and picks fallback', async () => {
@@ -122,7 +128,10 @@ describe('selectAvailableModel', () => {
   });
 
   it('returns model limit error when no model available', async () => {
-    const redis = createMockRedis([AcquireCode.ModelRpdExceeded, AcquireCode.ModelRpdExceeded]);
+    const redis = createMockRedis([
+      AcquireCode.ModelRpdExceeded,
+      AcquireCode.ModelRpdExceeded,
+    ]);
     const res = await selectAvailableModel({
       redis: redis as any,
       modelChain: ['m1', 'm2'],
