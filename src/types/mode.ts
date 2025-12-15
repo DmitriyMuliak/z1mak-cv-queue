@@ -3,3 +3,5 @@ export interface Mode {
   domain: 'it' | 'common';
   depth: 'standard' | 'deep';
 }
+
+export type ModeType = 'hard' | 'lite';
