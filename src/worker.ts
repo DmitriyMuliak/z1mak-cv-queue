@@ -232,6 +232,11 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
 
     const meta = await redis.hgetall(redisKeys.jobMeta(jobId as string));
 
+    if (!meta || Object.keys(meta).length === 0) {
+      console.warn(`[QueueEvents] No metadata for job ${jobId} — skipping.`);
+      return;
+    }
+
     const userId = meta.user_id;
     const model = meta.processed_model || meta.requested_model;
     const tokensConsumed = meta.tokens_consumed === 'true';
