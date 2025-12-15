@@ -19,7 +19,7 @@ services:
 
   worker:
     build: .
-    command: ["node", "-r", "./dist/test/mock/MockGeminiProvider/registerGeminiMock.js", "dist/src/worker.js"]
+    command: ["node", "-r", "./dist/test/mock/MockGeminiProvider/registerGeminiMock.js", "dist/src/worker/index.js"]
     environment:
       REDIS_URL: "redis://redis:6379"
       BULLMQ_QUEUE: "ai-jobs"

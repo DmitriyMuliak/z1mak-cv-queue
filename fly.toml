@@ -11,7 +11,7 @@ primary_region = "iad" # Chose closest region
 
 [processes]
   web = "node dist/server.js"
-  worker = "node dist/worker.js"
+  worker = "node dist/src/worker/index.js"
 
 # -----------------------------------------------
 # WEB (API Server) -

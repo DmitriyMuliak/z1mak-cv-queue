@@ -13,7 +13,7 @@
    - Обчислює `maxQueueLength` з урахуванням RPM/RPD та середньої тривалості, інкрементує `queue:waiting:{model}` і відсікає `QUEUE_FULL` при перевищенні.
    - Додає job у BullMQ.
 
-2. **BullMQ worker (`src/worker.ts`)**
+2. **BullMQ worker (`src/worker/index.ts`)**
    - Конкурентність воркера задається при створенні `Worker` (див. `DEFAULT_CONCURRENCY` і динамічне оновлення через Redis канал `configUpdate`).
    - Перед виконанням списує ліміти моделі через Lua `consumeExecutionLimits`:
      - `model:rpm` (хвилинний ліміт),
@@ -48,7 +48,7 @@
   ```
 
 - **`consumeExecutionLimits.lua`** (worker): списує `model:rpm` і `model:rpd` перед викликом провайдера. Повертає `ModelRpmExceeded`, `ModelRpdExceeded` або `OK`.  
-  Виклик у `src/worker.ts`:
+  Виклик у `src/worker/index.ts`:
 
   ```ts
   const consumeCode = await consumeModelLimits(model, { modelRpm, modelRpd });
@@ -78,7 +78,7 @@ if (waitingCount > maxQueueLength) {
 
 ## Конкурентність воркерів
 
-У `src/worker.ts` створюються два воркери (hard/lite) з власною concurrency:
+У `src/worker/index.ts` створюються два воркери (hard/lite) з власною concurrency:
 
 ```ts
 const DEFAULT_CONCURRENCY = { hard: 3, lite: 8 };

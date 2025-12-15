@@ -13,7 +13,7 @@ This project limits the load on the external AI provider and users through three
     - Calculates `maxQueueLength` based on RPM/RPD and average duration, increments `queue:waiting:{model}`, and rejects with `QUEUE_FULL` if exceeded.
     - Adds the job to BullMQ.
 
-2.  **BullMQ worker (`src/worker.ts`)**
+2.  **BullMQ worker (`src/worker/index.ts`)**
     - Worker concurrency is set during `Worker` creation (see `DEFAULT_CONCURRENCY` and dynamic updates via the Redis channel `configUpdate`).
     - Before execution, consumes model limits via the Lua script `consumeExecutionLimits`:
       - `model:rpm` (Rate Per Minute limit),
@@ -48,7 +48,7 @@ This project limits the load on the external AI provider and users through three
   ```
 
 - **`consumeExecutionLimits.lua`** (worker): Consumes `model:rpm` and `model:rpd` before calling the provider. Returns `ModelRpmExceeded`, `ModelRpdExceeded`, or `OK`.
-  Invocation in `src/worker.ts`:
+  Invocation in `src/worker/index.ts`:
 
   ```ts
   const consumeCode = await consumeModelLimits(model, { modelRpm, modelRpd });
@@ -78,7 +78,7 @@ This limits the number of tasks in the system for a given model, even if the dai
 
 ## Worker Concurrency
 
-In `src/worker.ts`, two workers (hard/lite) are created, each with its own concurrency:
+In `src/worker/index.ts`, two workers (hard/lite) are created, each with its own concurrency:
 
 ```ts
 const DEFAULT_CONCURRENCY = { hard: 3, lite: 8 };
