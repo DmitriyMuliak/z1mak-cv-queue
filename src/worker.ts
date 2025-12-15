@@ -108,6 +108,7 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
     await redis.hset(redisKeys.jobMeta(jobId), { tokens_consumed: 'true' });
   }
 
+  const startedAt = Date.now();
   try {
     // Mark that we have reached the provider; helps avoid returning tokens if the worker crashes after provider call
     await redis.hset(redisKeys.jobMeta(jobId), { provider_completed: 'false' });
@@ -142,6 +143,9 @@ const handleJob = async (queueType: ModeType, job: Job<JobPayload>) => {
       throw new UnrecoverableError(err?.message || 'provider_fatal_error');
     }
     throw err;
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    console.info(`[Worker] job ${jobId} finished in ${durationMs}ms`);
   }
 };
 
@@ -222,6 +226,10 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
   queueEvent.on('failed', async ({ jobId, failedReason }) => {
     const queue = queues[queueType];
     const job = await queue.getJob(jobId as string);
+    if (!job) {
+      console.warn(`[Worker] failed event but job not found: ${jobId}`);
+      return;
+    }
     const attemptsMade = job?.attemptsMade ?? 0;
     const maxAttempts = job?.opts.attempts ?? 1;
     const isFinalAttempt = job ? attemptsMade >= maxAttempts : true;

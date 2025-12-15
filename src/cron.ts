@@ -13,6 +13,7 @@ const ORPHAN_CLEAN_MS = 60 * 60 * 1000;
 const EXPIRE_CHECK_MS = 60 * 1000;
 const EXPIRE_SLA_MS = 30 * 60 * 1000; // 30 minutes SLA for queue wait/active
 const MINUTE_TTL = 70;
+const LOCK_SAFETY_MS = 10_000;
 
 let modelTimer: NodeJS.Timeout | undefined;
 let syncTimer: NodeJS.Timeout | undefined;
@@ -24,18 +25,47 @@ let warnedDbSyncSkip = false;
 const queueLite = new Queue(env.queueLiteName, { connection: { url: env.redisUrl } });
 const queueHard = new Queue(env.queueHardName, { connection: { url: env.redisUrl } });
 
+const runWithLock = async (name: string, ttlMs: number, fn: () => Promise<void>) => {
+  const lockKey = `cron:lock:${name}`;
+  const acquired = await redis.set(lockKey, '1', 'PX', ttlMs + LOCK_SAFETY_MS, 'NX');
+  if (!acquired) {
+    return;
+  }
+  const started = Date.now();
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`[Cron] ${name} failed`, err);
+  } finally {
+    await redis.del(lockKey);
+    console.info(`[Cron] ${name} completed in ${Date.now() - started}ms`);
+  }
+};
+
 export const startCron = async () => {
-  await reloadModelLimits();
-  modelTimer = setInterval(reloadModelLimits, MODEL_RELOAD_MS);
+  await runWithLock('reloadModelLimits', MODEL_RELOAD_MS, reloadModelLimits);
+  modelTimer = setInterval(
+    () => runWithLock('reloadModelLimits', MODEL_RELOAD_MS, reloadModelLimits),
+    MODEL_RELOAD_MS
+  );
 
-  await syncDbResults();
-  syncTimer = setInterval(syncDbResults, DB_SYNC_MS);
+  await runWithLock('syncDbResults', DB_SYNC_MS, syncDbResults);
+  syncTimer = setInterval(
+    () => runWithLock('syncDbResults', DB_SYNC_MS, syncDbResults),
+    DB_SYNC_MS
+  );
 
-  await cleanupOrphanLocks();
-  cleanupTimer = setInterval(cleanupOrphanLocks, ORPHAN_CLEAN_MS);
+  await runWithLock('cleanupOrphanLocks', ORPHAN_CLEAN_MS, cleanupOrphanLocks);
+  cleanupTimer = setInterval(
+    () => runWithLock('cleanupOrphanLocks', ORPHAN_CLEAN_MS, cleanupOrphanLocks),
+    ORPHAN_CLEAN_MS
+  );
 
-  await expireStaleJobs();
-  expireTimer = setInterval(expireStaleJobs, EXPIRE_CHECK_MS);
+  await runWithLock('expireStaleJobs', EXPIRE_CHECK_MS, expireStaleJobs);
+  expireTimer = setInterval(
+    () => runWithLock('expireStaleJobs', EXPIRE_CHECK_MS, expireStaleJobs),
+    EXPIRE_CHECK_MS
+  );
 };
 
 export const stopCron = async () => {
