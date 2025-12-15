@@ -22,12 +22,7 @@ export const createQueueMock = createQueueMockInt;
 
 // Reset Logic
 export const resetDoubles = () => {
-  fakeRedis.strings.clear();
-  fakeRedis.hashes.clear();
-  fakeRedis.zsets.clear();
-  fakeRedis.expirations.clear();
-  fakeRedis.scanCalls = [];
-  fakeRedis.delCalls = [];
+  fakeRedis.reset();
   supabaseQueries.length = 0;
   createdQueues.forEach((q: any) => {
     q.getJobs = vi.fn(async () => []);

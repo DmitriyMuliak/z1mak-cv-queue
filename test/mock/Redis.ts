@@ -10,6 +10,15 @@ export class FakeRedis {
   scanCalls: Array<{ pattern: string; count: number }> = [];
   delCalls: string[][] = [];
 
+  reset() {
+    this.strings.clear();
+    this.hashes.clear();
+    this.zsets.clear();
+    this.expirations.clear();
+    this.scanCalls = [];
+    this.delCalls = [];
+  }
+
   set(key: string, value: string | number, mode?: string, ttlMs?: number, nx?: string) {
     // Support basic NX locking semantics used in cron
     if (nx === 'NX' && this.strings.has(key)) {
@@ -140,20 +149,29 @@ export class FakeRedis {
 
   pipeline() {
     const commands: Array<() => void> = [];
-    return {
+    const pipe = {
+      hset: (key: string, values: Record<string, string | number | null | undefined>) => {
+        commands.push(() => this.hset(key, values));
+        return pipe;
+      },
+      zrem: (key: string, member: string) => {
+        commands.push(() => this.zrem(key, member));
+        return pipe;
+      },
       del: (...keys: string[]) => {
         commands.push(() => this.del(...keys));
-        return this;
+        return pipe;
       },
       zremrangebyscore: (key: string, min: string | number, max: string | number) => {
         commands.push(() => this.zremrangebyscore(key, min, max));
-        return this;
+        return pipe;
       },
       exec: async () => {
         commands.forEach((fn) => fn());
         return [];
       },
     };
+    return pipe;
   }
 
   returnTokensAtomic(
