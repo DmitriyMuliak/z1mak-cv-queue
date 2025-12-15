@@ -51,7 +51,13 @@ export class FakeRedis {
     return this.strings.has(key) || this.hashes.has(key) || this.zsets.has(key) ? 1 : 0;
   }
 
-  scan(cursor: string, _match: string, pattern: string, _countKey: string, count: number) {
+  scan(
+    cursor: string,
+    _match: string,
+    pattern: string,
+    _countKey: string,
+    count: number
+  ) {
     this.scanCalls.push({ pattern, count });
     const keys = Array.from(
       new Set([...this.strings.keys(), ...this.hashes.keys(), ...this.zsets.keys()])

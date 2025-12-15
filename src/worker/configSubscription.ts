@@ -6,7 +6,10 @@ type ConfigSubscriptionDeps = {
   refreshConcurrency: () => Promise<void>;
 };
 
-export const createConfigSubscription = ({ subRedis, refreshConcurrency }: ConfigSubscriptionDeps) => {
+export const createConfigSubscription = ({
+  subRedis,
+  refreshConcurrency,
+}: ConfigSubscriptionDeps) => {
   return async () => {
     try {
       await subRedis.subscribe(redisChannels.configUpdate, async () => {

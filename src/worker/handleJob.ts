@@ -1,5 +1,5 @@
-import type { Job } from 'bullmq';
 import { redisKeys } from '../redis/keys';
+import type { Job } from 'bullmq';
 import type { RedisWithScripts } from '../redis/client';
 import type { JobPayload } from './types';
 import type { ModeType } from './concurrencyManager';
@@ -23,8 +23,14 @@ export const createHandleJob = (deps: {
   finalizeSuccess: FinalizeSuccess;
   finalizeFailure: FinalizeFailure;
 }) => {
-  const { redis, markInProgress, consumeLimitsIfNeeded, executeModel, finalizeSuccess, finalizeFailure } =
-    deps;
+  const {
+    redis,
+    markInProgress,
+    consumeLimitsIfNeeded,
+    executeModel,
+    finalizeSuccess,
+    finalizeFailure,
+  } = deps;
 
   return async (_queueType: ModeType, job: Job<JobPayload>) => {
     const jobId = job.id as string;

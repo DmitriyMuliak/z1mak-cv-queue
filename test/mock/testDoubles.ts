@@ -1,13 +1,13 @@
-import { FakeRedis } from "./Redis";
-import { 
+import { FakeRedis } from './Redis';
+import {
   createdQueues as createdQueuesInt,
-  createQueueMock as createQueueMockInt 
-} from "./Queue";
-import { 
+  createQueueMock as createQueueMockInt,
+} from './Queue';
+import {
   supabaseQueries as supabaseQueriesInt,
-  supabaseClientMock as supabaseClientMockInt 
-} from "./SupabaseClient";
-import { vi } from "vitest";
+  supabaseClientMock as supabaseClientMockInt,
+} from './SupabaseClient';
+import { vi } from 'vitest';
 
 // DB
 export const supabaseClientMock = supabaseClientMockInt;
