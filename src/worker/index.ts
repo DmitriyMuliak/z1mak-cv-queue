@@ -1,7 +1,6 @@
-import { Worker, QueueEvents, Queue } from 'bullmq';
-import { createRedisClient } from '../redis/client';
-import { redisChannels } from '../redis/channels';
+import { QueueEvents, Queue } from 'bullmq';
 import { env } from '../config/env';
+import { createRedisClient } from '../redis/client';
 import { ModelProviderService } from '../ai/ModelProviderService';
 import { createConcurrencyManager, ModeType, WorkerMap } from './concurrencyManager';
 import { createQueueEventsRegistrar } from './queueEvents';
@@ -13,12 +12,19 @@ import { createExecuteModel } from './executeModel';
 import { createFinalizeSuccess } from './finalizeSuccess';
 import { finalizeFailure } from './finalizeFailure';
 import { createHandleJob } from './handleJob';
-
-const MINUTE_TTL = 70;
+import { createWorkerFactory } from './createWorker';
+import { createConfigSubscription } from './configSubscription';
 
 const redis = createRedisClient();
 const subRedis = createRedisClient();
 const modelProvider = new ModelProviderService();
+
+const MINUTE_TTL = 70;
+
+const queueNames: Record<ModeType, string> = {
+  lite: env.queueLiteName,
+  hard: env.queueHardName,
+};
 
 const queues = {
   lite: new Queue(env.queueLiteName, { connection: { url: env.redisUrl } }),
@@ -29,6 +35,8 @@ const queueEvents = {
   lite: new QueueEvents(env.queueLiteName, { connection: { url: env.redisUrl } }),
   hard: new QueueEvents(env.queueHardName, { connection: { url: env.redisUrl } }),
 };
+
+let workers: WorkerMap;
 
 const returnTokens = createReturnTokens(redis, MINUTE_TTL);
 const consumeModelLimits = createConsumeModelLimits(redis, MINUTE_TTL);
@@ -44,41 +52,20 @@ const handleJob = createHandleJob({
   finalizeSuccess,
   finalizeFailure,
 });
-
-const queueNames: Record<ModeType, string> = {
-  lite: env.queueLiteName,
-  hard: env.queueHardName,
-};
-
-const createWorker = (queueType: ModeType, concurrency: number) =>
-  new Worker(
-    queueNames[queueType],
-    async (job) => {
-      await handleJob(queueType, job);
-    },
-    {
-      connection: { url: env.redisUrl },
-      concurrency,
-    }
-  );
-
-let workers: WorkerMap;
+const createWorker = createWorkerFactory({
+  queueNames,
+  redisUrl: env.redisUrl,
+  handleJob,
+});
 const concurrencyManager = createConcurrencyManager({
   redis,
   createWorker,
   workersRef: () => workers,
 });
-
-const setupConfigSubscription = async () => {
-  try {
-    await subRedis.subscribe(redisChannels.configUpdate, async () => {
-      await concurrencyManager.refreshConcurrency();
-    });
-  } catch (err) {
-    console.error('Failed to subscribe to config updates', err);
-  }
-};
-
+const setupConfigSubscription = createConfigSubscription({
+  subRedis,
+  refreshConcurrency: concurrencyManager.refreshConcurrency,
+});
 const registerQueueEvents = createQueueEventsRegistrar({
   redis,
   queues,
