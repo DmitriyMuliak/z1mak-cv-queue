@@ -161,10 +161,7 @@ const createWorker = (queueName: string, queueType: ModeType, concurrency: numbe
     }
   );
 
-const workers = {
-  lite: createWorker(env.queueLiteName, 'lite', DEFAULT_CONCURRENCY.lite),
-  hard: createWorker(env.queueHardName, 'hard', DEFAULT_CONCURRENCY.hard),
-};
+let workers: { lite: Worker; hard: Worker };
 
 const parseConcurrency = (raw: string | null, fallback: number) => {
   const parsed = raw ? Number(raw) : NaN;
@@ -180,6 +177,16 @@ const fetchConcurrencyConfig = async () => {
   return {
     lite: parseConcurrency(liteRaw, DEFAULT_CONCURRENCY.lite),
     hard: parseConcurrency(hardRaw, DEFAULT_CONCURRENCY.hard),
+  };
+};
+
+const initWorkers = async () => {
+  const desired = await fetchConcurrencyConfig();
+  activeConcurrency.lite = desired.lite;
+  activeConcurrency.hard = desired.hard;
+  workers = {
+    lite: createWorker(env.queueLiteName, 'lite', desired.lite),
+    hard: createWorker(env.queueHardName, 'hard', desired.hard),
   };
 };
 
@@ -277,11 +284,15 @@ const registerQueueEvents = (queueEvent: QueueEvents, queueType: ModeType) => {
   });
 };
 
-registerQueueEvents(queueEvents.lite, 'lite');
-registerQueueEvents(queueEvents.hard, 'hard');
+const start = async () => {
+  await initWorkers();
+  registerQueueEvents(queueEvents.lite, 'lite');
+  registerQueueEvents(queueEvents.hard, 'hard');
+  await refreshConcurrencyLoop();
+  await setupConfigSubscription();
+};
 
-void refreshConcurrencyLoop();
-void setupConfigSubscription();
+void start();
 
 const shutdown = async () => {
   await Promise.all([workers.lite.close(), workers.hard.close()]);
