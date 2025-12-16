@@ -7,6 +7,7 @@ export interface EnvConfig {
   port: number;
   supabaseUrl?: string;
   supabaseKey?: string;
+  isProduction: boolean;
 }
 
 const numberFromEnv = (value: string | undefined, fallback: number): number => {
@@ -23,4 +24,5 @@ export const env: EnvConfig = {
   port: numberFromEnv(process.env.PORT, 4000),
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseKey: process.env.SUPABASE_KEY,
+  isProduction: process.env.NODE_ENV === 'production'
 };

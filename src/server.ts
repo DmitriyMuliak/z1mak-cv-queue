@@ -5,9 +5,9 @@ import redisPlugin from './plugins/redis';
 import resumeRoutes from './routes/resume/resume';
 import healthRoutes from './routes/health';
 import adminRoutes from './routes/admin/admin';
-import { env } from './config/env';
 import { syncUserLimitsFromDB } from './services/userLimitsPreloader';
 import { startCron, stopCron } from './cron';
+import { env } from './config/env';
 
 const start = async () => {
   const fastify = Fastify({ logger: true });
