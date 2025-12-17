@@ -257,6 +257,7 @@ Guarantees:
 `GET /health` reports:
 
 - Redis connectivity
+- DB connectivity (SELECT 1)
 - BullMQ queue status
 - worker count
 - memory & CPU
