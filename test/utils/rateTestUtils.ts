@@ -155,7 +155,7 @@ export const startCompose = async () => {
   // For local debug:
   // START
   // First shell
-  // docker compose -f docker-compose.test.yml up -d --build redis api worker mock-gemini
+  // docker compose -f docker-compose.test.yml up -d --build db redis api worker mock-gemini
   // Second shell
   // docker compose -f docker-compose.test.yml logs -f api worker
   // Third shell
@@ -163,7 +163,7 @@ export const startCompose = async () => {
   // STOP
   // docker compose -f docker-compose.test.yml down
   execSync(
-    `docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`,
+    `docker compose -f ${composeFile} up -d --build db redis api worker mock-gemini`,
     {
       stdio: 'inherit',
     }

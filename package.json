@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node dist/server.js",
+    "supabase": "supabase",
     "start:api": "node dist/server.js",
     "start:worker": "node dist/src/worker/index.js",
     "start:cron": "node dist/src/cron/index.js",
@@ -16,9 +17,9 @@
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",
     "fix": "npm run lint -- --fix && npm run format:write",
     "test:unit": "vitest run test/unit",
-    "test:integration": "TEST_USE_COMPOSE=1 vitest run test/integration --pool=forks --maxConcurrency=1 --reporter=basic",
+    "test:integration": "TEST_USE_COMPOSE=1 vitest run test/integration --pool=forks --maxConcurrency=1",
     "test": "npm run test:unit && npm run test:integration",
-    "build": "tsc -p tsconfig.json && npm run build:copy-lua",
+    "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
     "build:copy-lua": "mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/"
   },
   "keywords": [],
@@ -48,8 +49,9 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
+    "supabase": "^2.67.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3",
-    "vitest": "^1.6.0"
+    "vitest": "^4.0.16"
   }
 }

@@ -8,7 +8,7 @@ ENV NODE_ENV=development
 COPY package*.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY test ./test
 COPY README.md ./README.md

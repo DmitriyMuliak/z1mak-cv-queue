@@ -148,10 +148,14 @@ export class FakeRedis {
   }
 
   pipeline() {
-    const commands: Array<() => void> = [];
+    const commands: Array<() => unknown> = [];
     const pipe = {
       hset: (key: string, values: Record<string, string | number | null | undefined>) => {
         commands.push(() => this.hset(key, values));
+        return pipe;
+      },
+      hgetall: (key: string) => {
+        commands.push(() => this.hgetall(key));
         return pipe;
       },
       zrem: (key: string, member: string) => {
@@ -167,8 +171,13 @@ export class FakeRedis {
         return pipe;
       },
       exec: async () => {
-        commands.forEach((fn) => fn());
-        return [];
+        return commands.map((fn) => {
+          try {
+            return [null, fn()] as [null, unknown];
+          } catch (err) {
+            return [err, null] as [unknown, null];
+          }
+        });
       },
     };
     return pipe;

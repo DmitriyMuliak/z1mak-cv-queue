@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { createRedisClient } from '../redis/client';
-import { supabaseClient } from '../db/client';
+import { db } from '../db/client';
 import { env } from '../config/env';
 import { createReloadModelLimits } from './reloadModelLimits';
 import { createSyncDbResults } from './syncDbResults';
@@ -24,8 +24,8 @@ let syncTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
 let expireTimer: NodeJS.Timeout | undefined;
 
-const reloadModelLimits = createReloadModelLimits({ redis, supabaseClient });
-const syncDbResults = createSyncDbResults({ redis, supabaseClient });
+const reloadModelLimits = createReloadModelLimits({ redis, db });
+const syncDbResults = createSyncDbResults({ redis, db });
 const cleanupOrphanLocks = createCleanupOrphanLocks({ redis });
 const expireStaleJobs = createExpireStaleJobs({
   redis,
@@ -71,7 +71,7 @@ export const stopCron = async () => {
   expireTimer = undefined;
 
   await redis.quit();
-  await supabaseClient.end();
+  await db.end();
   await queueLite.close();
   await queueHard.close();
 };

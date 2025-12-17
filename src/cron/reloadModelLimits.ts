@@ -1,26 +1,16 @@
 import type { RedisWithScripts } from '../redis/client';
 import { redisKeys } from '../redis/keys';
 
-type SupabaseClient = typeof import('../db/client').supabaseClient;
+type DbClient = typeof import('../db/client').db;
 
 type CreateReloadDeps = {
   redis: RedisWithScripts;
-  supabaseClient: SupabaseClient;
+  db: DbClient;
 };
 
-export const createReloadModelLimits = ({ redis, supabaseClient }: CreateReloadDeps) => {
-  let warnedModelSkip = false;
-
+export const createReloadModelLimits = ({ redis, db }: CreateReloadDeps) => {
   return async () => {
-    if (supabaseClient.isMock) {
-      if (!warnedModelSkip) {
-        console.warn('[Cron] Supabase not configured, skipping model limits reload.');
-        warnedModelSkip = true;
-      }
-      return;
-    }
-
-    const res = await supabaseClient.query<{
+    const res = await db.query<{
       id: string;
       rpm: number;
       rpd: number;

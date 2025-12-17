@@ -1,5 +1,8 @@
 version: "3.9"
 
+# Note: Postgres is external (Supabase in prod or local Supabase), so no DB service here.
+# Provide DATABASE_URL via env/.env when running this compose file.
+
 services:
   api:
     build: .

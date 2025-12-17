@@ -1,48 +1,79 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import os from 'os';
+import { db } from '../db/client';
 
 export default async function healthRoutes(fastify: FastifyInstance) {
-  fastify.get('/health', async () => {
-    const redisOk = await fastify.redis
-      .ping()
-      .then(() => true)
-      .catch(() => false);
+  fastify.get('/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+    const REQUEST_TIMEOUT = 7000; // 7 seconds (DB gets 5s + buffer)
+    let timeoutId: NodeJS.Timeout | undefined;
 
-    let queueReady = false;
-    let queuePaused = false;
-    let queueError: string | null = null;
     try {
-      await Promise.all([
-        fastify.queueLite.waitUntilReady(),
-        fastify.queueHard.waitUntilReady(),
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Health check timeout')),
+          REQUEST_TIMEOUT
+        );
+      });
+
+      const [redisPing, dbOk, queues] = await Promise.race([
+        Promise.all([
+          fastify.redis.ping().catch(() => null),
+          db.isConnected(),
+          Promise.all([
+            fastify.queueLite
+              .waitUntilReady()
+              .then(() => true)
+              .catch(() => false),
+            fastify.queueHard
+              .waitUntilReady()
+              .then(() => true)
+              .catch(() => false),
+            fastify.queueLite.isPaused().catch(() => false),
+            fastify.queueHard.isPaused().catch(() => false),
+          ]),
+        ]),
+        timeoutPromise,
       ]);
-      queueReady = true;
-      const [litePaused, hardPaused] = await Promise.all([
-        fastify.queueLite.isPaused(),
-        fastify.queueHard.isPaused(),
-      ]);
-      queuePaused = Boolean(litePaused) || Boolean(hardPaused);
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      const [qLiteReady, qHardReady, litePaused, hardPaused] = queues;
+      const redisOk = redisPing === 'PONG';
+      // BullMQ can restart queues, so skip this indicator for basic health checks
+      const queueReady = qLiteReady && qHardReady;
+
+      const isHealthy = redisOk && dbOk;
+
+      const pool = db.getPool();
+      const memory = process.memoryUsage();
+
+      return reply.code(isHealthy ? 200 : 503).send({
+        status: isHealthy ? 'ok' : 'error',
+        timestamp: new Date().toISOString(),
+        services: {
+          redis: redisOk ? 'ok' : 'error',
+          db: dbOk ? 'ok' : 'error',
+          queue: queueReady ? 'ok' : 'error',
+        },
+        queueState: { ready: queueReady, paused: litePaused || hardPaused },
+        db_pool: {
+          total: pool.totalCount,
+          waiting: pool.waitingCount,
+        },
+        metrics: {
+          ram_rss_mb: Math.round(memory.rss / 1024 / 1024),
+          cpu_load_1m: Number(os.loadavg()[0].toFixed(2)),
+          uptime_s: Math.floor(process.uptime()),
+        },
+      });
     } catch (err) {
-      queueError = (err as Error)?.message ?? 'queue_not_ready';
+      if (timeoutId) clearTimeout(timeoutId);
+
+      return reply.code(503).send({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'timeout',
+        timestamp: new Date().toISOString(),
+      });
     }
-
-    const memory = process.memoryUsage();
-
-    const payload = {
-      redis: redisOk ? 'ok' : 'error',
-      queueReady,
-      queuePaused: queuePaused ?? false,
-      queueError,
-      workers: 0, // worker count not tracked in API process
-      ram: memory.rss,
-      cpu: os.loadavg()[0],
-      uptime: process.uptime() * 1000,
-    };
-
-    if (!queueReady) {
-      return { statusCode: 503, ...payload };
-    }
-
-    return payload;
   });
 }

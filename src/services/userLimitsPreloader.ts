@@ -1,7 +1,7 @@
 // services/limitsPreloader.ts (Final version with pipelining)
 
 import type { Redis } from 'ioredis';
-import { supabaseClient } from '../db/client';
+import { db } from '../db/client';
 import { redisKeys } from '../redis/keys';
 
 interface UserLimitRow {
@@ -16,9 +16,9 @@ interface UserLimitRow {
 export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
   let rows: UserLimitRow[] = [];
   try {
-    const dbResult = await supabaseClient.query<UserLimitRow>(
+    const dbResult = await db.query<UserLimitRow>(
       `SELECT 
-             user_id, role, hard_rpd, lite_rpd, max_concurrency, unlimited
+        user_id, role, hard_rpd, lite_rpd, max_concurrency, unlimited
            FROM user_limits`
     );
     rows = dbResult.rows;

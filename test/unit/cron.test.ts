@@ -16,7 +16,7 @@ vi.mock('../../src/redis/client', () => ({
 }));
 
 vi.mock('../../src/db/client', () => ({
-  supabaseClient: supabaseClientMock,
+  db: supabaseClientMock,
 }));
 
 vi.mock('bullmq', () => createQueueMock());

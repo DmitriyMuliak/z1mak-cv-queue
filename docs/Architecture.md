@@ -257,10 +257,29 @@ Guarantees:
 `GET /health` reports:
 
 - Redis connectivity
-- BullMQ queue status
-- Worker count
+- DB connectivity (SELECT 1)
+- BullMQ queue readiness + paused state
+- DB pool metrics (total/waiting)
 - Memory & CPU
 - Uptime
+
+## 13.1 **Operational Limits & Ratios**
+
+**Worker concurrency defaults**
+
+- `DEFAULT_CONCURRENCY`: `lite=8`, `hard=3` (total 11). Overrides can be applied via Redis config.
+
+**DB pool limits**
+
+- `max=10` (kept below Supabase hard limit 15)
+- `idleTimeoutMillis=30000`
+- `allowExitOnIdle=true`
+- `connectionTimeoutMillis=5000`
+
+**Health check timing chain**
+
+- `connectionTimeoutMillis (5s) < /health REQUEST_TIMEOUT (7s) < Fly http_checks timeout (8s)`
+- Fly http_checks `interval=20s` should stay higher than the timeout; `grace_period=20s` allows cold start warm-up
 
 ---
 

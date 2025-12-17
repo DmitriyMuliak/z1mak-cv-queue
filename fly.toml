@@ -24,6 +24,15 @@ primary_region = "iad" # Chose closest region
   processes = ["web"]
   internal_port = 4000
 
+  [[services.http_checks]]
+    interval = "20s"      # Slightly increased interval to give the DB breathing room
+    timeout = "8s"        # Greater than REQUEST_TIMEOUT (see db connectionTimeoutMillis)
+    grace_period = "20s"  # Nano instances need warm-up time
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    restart_limit = 3
+
   [[services.ports]]
     port = 80
     handlers = ["http"]

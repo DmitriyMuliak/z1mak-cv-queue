@@ -38,6 +38,7 @@ export const createConcurrencyManager = ({
   workersRef,
 }: ConcurrencyManagerDeps) => {
   const activeConcurrency = { ...DEFAULT_CONCURRENCY };
+  let isConcurrencyLoading = false;
 
   const reloadWorker = async (queueType: ModeType, concurrency: number) => {
     const workers = workersRef();
@@ -58,6 +59,9 @@ export const createConcurrencyManager = ({
   };
 
   const refreshConcurrency = async () => {
+    if (isConcurrencyLoading) return;
+    isConcurrencyLoading = true;
+
     try {
       const desired = await fetchConcurrencyConfig(redis);
       const updates: Array<Promise<void>> = [];
@@ -73,9 +77,12 @@ export const createConcurrencyManager = ({
 
       if (updates.length > 0) {
         await Promise.all(updates);
+        console.info('refreshConcurrency', desired);
       }
     } catch (err) {
       console.error('Failed to refresh worker concurrency', err);
+    } finally {
+      isConcurrencyLoading = false;
     }
   };
 
