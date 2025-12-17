@@ -11,7 +11,7 @@ export interface UserLimits {
 
 const defaultUserLimits: UserLimits = {
   hard_rpd: 1,
-  lite_rpd: 9,
+  lite_rpd: 3,
   max_concurrency: 2,
   unlimited: false,
   role: 'user',
