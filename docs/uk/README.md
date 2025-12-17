@@ -252,12 +252,23 @@ model:{name}:limits
 
 ```json
 {
+  "db": "ok",
   "redis": "ok",
-  "queue": "running",
+  "queue": "ok",
   "workers": 3,
   "uptime": 551232,
   "cpu": "normal",
-  "memory": "normal"
+  "memory": "normal",
+  "queueState": { "ready": "queueReady", "paused": "litePaused || hardPaused" },
+  "db_pool": {
+    "total": 10,
+    "waiting": 3
+  },
+  "metrics": {
+    "ram_rss_mb": 120,
+    "cpu_load_1m": 2,
+    "uptime_s": 53223123
+  }
 }
 ```
 
