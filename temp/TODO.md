@@ -1,5 +1,5 @@
-1 - Create new Project for DB.
-2 - Setup local db connect for testing proposes.
+1 - Create new Project for DB. (done)
+2 - Setup local db connect for testing proposes. (done)
 3 - Connect to new DB.
 4 - Update DB Schema.
 5 - Revise ENV variables and clean it in docker-compose file.
