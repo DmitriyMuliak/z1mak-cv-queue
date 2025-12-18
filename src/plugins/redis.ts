@@ -2,7 +2,7 @@ import fp from 'fastify-plugin';
 import { Queue } from 'bullmq';
 import { createRedisClient, RedisWithScripts } from '../redis/client';
 import { env } from '../config/env';
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 declare module 'fastify' {
   interface FastifyInstance {

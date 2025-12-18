@@ -1,22 +1,20 @@
-version: "3.9"
-
 # Test stack includes a local Postgres container for integration tests.
 # Production uses external Supabase/Postgres via DATABASE_URL.
 
 services:
   api:
     build: .
-    command: ["node", "dist/src/server.js"]
+    command: ['node', 'dist/src/server.js']
     environment:
-      PORT: "4000"
-      REDIS_URL: "redis://redis:6379"
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/postgres"
-      BULLMQ_QUEUE: "ai-jobs"
-      GEMINI_API_KEY: "dummy"
-      INTERNAL_API_KEY: "internal-secret"
-      GEMINI_BASE_URL: "http://mock-gemini:8080"
+      PORT: '4000'
+      REDIS_URL: 'redis://redis:6379'
+      DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres'
+      BULLMQ_QUEUE: 'ai-jobs'
+      GEMINI_API_KEY: 'dummy'
+      INTERNAL_API_KEY: 'internal-secret'
+      GEMINI_BASE_URL: 'http://mock-gemini:8080'
     ports:
-      - "4000:4000"
+      - '4000:4000'
     depends_on:
       - redis
       - db
@@ -24,14 +22,20 @@ services:
 
   worker:
     build: .
-    command: ["node", "-r", "./dist/test/mock/MockGeminiProvider/registerGeminiMock.js", "dist/src/worker/index.js"]
+    command:
+      [
+        'node',
+        '-r',
+        './dist/test/mock/MockGeminiProvider/registerGeminiMock.js',
+        'dist/src/worker/index.js',
+      ]
     environment:
-      REDIS_URL: "redis://redis:6379"
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/postgres"
-      BULLMQ_QUEUE: "ai-jobs"
-      GEMINI_API_KEY: "dummy"
-      INTERNAL_API_KEY: "internal-secret"
-      GEMINI_MOCK_URL: "http://mock-gemini:8080"
+      REDIS_URL: 'redis://redis:6379'
+      DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres'
+      BULLMQ_QUEUE: 'ai-jobs'
+      GEMINI_API_KEY: 'dummy'
+      INTERNAL_API_KEY: 'internal-secret'
+      GEMINI_MOCK_URL: 'http://mock-gemini:8080'
     depends_on:
       - redis
       - db
@@ -39,21 +43,21 @@ services:
 
   mock-gemini:
     build: .
-    command: ["node", "dist/test/mock/MockGeminiProvider/geminiServer.js"]
+    command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
     ports:
-      - "8080:8080"
+      - '8080:8080'
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
     ports:
-      - "6379:6379"
+      - '6379:6379'
 
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "postgres"
-      POSTGRES_DB: "postgres"
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+      POSTGRES_DB: 'postgres'
     ports:
-      - "5432:5432"
+      - '5432:5432'

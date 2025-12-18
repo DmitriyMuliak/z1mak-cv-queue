@@ -25,6 +25,10 @@ const config: MockConfig = {
   delayMs: 0,
 };
 
+app.get('/health', async (_request, reply) => {
+  reply.send({ status: 'ok' });
+});
+
 app.post('/__config', async (request, reply) => {
   const body = (request.body ?? {}) as Partial<MockConfig>;
 

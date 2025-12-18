@@ -8,9 +8,12 @@ export type DbClient = PoolClient;
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 // LOCAL_HOSTS: local dev (host machine). "db": docker-compose service host when TEST_USE_COMPOSE is enabled.
-const isLocalHost = (hostname: string) =>
-  LOCAL_HOSTS.has(hostname) ||
-  (process.env.TEST_USE_COMPOSE !== '0' && hostname === 'db');
+const isLocalHost = (hostname: string) => {
+  return (
+    LOCAL_HOSTS.has(hostname) ||
+    (process.env.TEST_USE_COMPOSE !== '0' && hostname === 'db')
+  );
+};
 
 const createPool = (): Pool => {
   const connectionString = env.pgUrl;

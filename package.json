@@ -5,8 +5,8 @@
   "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node dist/server.js",
-    "supabase": "supabase",
+    "start": "docker compose -f docker-compose.develop.yml up",
+    "start:build": "docker compose -f docker-compose.develop.yml up --build",
     "start:api": "node dist/server.js",
     "start:worker": "node dist/src/worker/index.js",
     "start:cron": "node dist/src/cron/index.js",
@@ -20,7 +20,8 @@
     "test:integration": "TEST_USE_COMPOSE=1 vitest run test/integration --pool=forks --maxConcurrency=1",
     "test": "npm run test:unit && npm run test:integration",
     "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
-    "build:copy-lua": "mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/"
+    "build:copy-lua": "shx mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/",
+    "supabase": "supabase"
   },
   "keywords": [],
   "author": "",
@@ -49,6 +50,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
+    "shx": "^0.4.0",
     "supabase": "^2.67.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3",
