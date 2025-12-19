@@ -21,7 +21,8 @@
     "test": "npm run test:unit && npm run test:integration",
     "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
     "build:copy-lua": "shx mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/",
-    "supabase": "supabase"
+    "supabase": "supabase",
+    "update-db-types": "supabase gen types typescript --local > ./src/types/supabase.ts"
   },
   "keywords": [],
   "author": "",
@@ -42,7 +43,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
     "@types/luxon": "^3.7.1",
-    "@types/node": "^22.9.0",
+    "@types/node": "^25.0.3",
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
