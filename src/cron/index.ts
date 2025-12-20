@@ -71,7 +71,6 @@ export const stopCron = async () => {
   expireTimer = undefined;
 
   await redis.quit();
-  await db.end();
   await queueLite.close();
   await queueHard.close();
 };

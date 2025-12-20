@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
-import corsDeny from './plugins/corsDeny';
-import internalAuth from './plugins/internalAuth';
+import corsDenyPlugin from './plugins/corsDeny';
+import internalAuthPlugin from './plugins/internalAuth';
 import redisPlugin from './plugins/redis';
+import dbPlugin from './plugins/database';
 import resumeRoutes from './routes/resume/resume';
 import healthRoutes from './routes/health';
 import adminRoutes from './routes/admin/admin';
@@ -12,8 +13,9 @@ import { env } from './config/env';
 const start = async () => {
   const fastify = Fastify({ logger: true });
 
-  await fastify.register(corsDeny);
-  await fastify.register(internalAuth);
+  await fastify.register(dbPlugin);
+  await fastify.register(corsDenyPlugin);
+  await fastify.register(internalAuthPlugin);
   await fastify.register(redisPlugin);
 
   await fastify.register(resumeRoutes, { prefix: '/resume' });
