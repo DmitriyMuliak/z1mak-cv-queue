@@ -45,3 +45,5 @@ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 data jsonb,
 status text
 );
+
+
