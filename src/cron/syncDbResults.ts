@@ -3,6 +3,8 @@ import { redisKeys } from '../redis/keys';
 import { safeJsonParse } from './utils/safeJsonParse';
 import { scanKeys } from './utils/scanKeys';
 
+const SYNCED_DATA_TTL_SECONDS = 300; // keep hot results in Redis for 5 minutes post-sync
+
 type CreateSyncDeps = {
   redis: RedisWithScripts;
   db: DbClient;
@@ -36,7 +38,7 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
         }
 
         const rows: JobRow[] = [];
-        const keysToDelete: string[] = [];
+        const keysToExpire: string[] = [];
 
         // --- 2. Parse results ---
         for (let i = 0; i < slice.length; i++) {
@@ -46,8 +48,14 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
           const meta = redisResults[i * 2][1] as RedisHash | null;
           const result = redisResults[i * 2 + 1][1] as RedisHash | null;
 
-          if (!meta || !result || Object.keys(result).length === 0) {
-            keysToDelete.push(resultKey, redisKeys.jobMeta(jobId));
+          const metaEmpty = !meta || Object.keys(meta).length === 0;
+          const resultEmpty = !result || Object.keys(result).length === 0;
+
+          if (metaEmpty || resultEmpty) {
+            console.warn(
+              `[Cron] syncDbResults skipping job ${jobId} — metaEmpty=${metaEmpty}, resultEmpty=${resultEmpty}`
+            );
+            keysToExpire.push(resultKey, redisKeys.jobMeta(jobId));
             continue;
           }
 
@@ -65,11 +73,17 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
             finished_at: result.finished_at || null,
             expired_at: result.expired_at || null,
           });
-          keysToDelete.push(resultKey, redisKeys.jobMeta(jobId));
+          keysToExpire.push(resultKey, redisKeys.jobMeta(jobId));
         }
 
         if (rows.length === 0) {
-          if (keysToDelete.length > 0) await redis.del(...keysToDelete);
+          if (keysToExpire.length > 0) {
+            const expirePipeline = redis.pipeline();
+            for (const key of keysToExpire) {
+              expirePipeline.expire(key, SYNCED_DATA_TTL_SECONDS);
+            }
+            await expirePipeline.exec();
+          }
           continue;
         }
 
@@ -112,8 +126,14 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
           values
         );
 
-        // --- 4. Delete from Redis ---
-        await redis.del(...keysToDelete);
+        // --- 4. Expire Redis data to keep it hot for a short window ---
+        if (keysToExpire.length > 0) {
+          const expirePipeline = redis.pipeline();
+          for (const key of keysToExpire) {
+            expirePipeline.expire(key, SYNCED_DATA_TTL_SECONDS);
+          }
+          await expirePipeline.exec();
+        }
         processed += rows.length;
       }
     });

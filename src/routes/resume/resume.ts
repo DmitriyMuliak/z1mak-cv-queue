@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { redisKeys } from '../../redis/keys';
+import { db } from '../../db/client';
 import { getCachedUserLimits } from '../../services/limitsCache';
 import { resolveModelChain } from '../../services/modelSelector';
 import { getCurrentDatePT, getSecondsUntilMidnightPT } from '../../utils/time';
@@ -126,6 +127,27 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         };
       }
 
+      // Fallback to DB (Redis TTL may have expired)
+      const dbResult = await db.query<{
+        status: string;
+        result: unknown;
+        error: string | null;
+        finished_at: Date | null;
+        created_at: Date;
+      }>('SELECT status, result, error, finished_at, created_at FROM job WHERE id = $1', [
+        jobId,
+      ]);
+      if (dbResult.rows.length > 0) {
+        const row = dbResult.rows[0];
+        return {
+          status: row.status,
+          data: row.result,
+          error: row.error,
+          finishedAt: row.finished_at,
+          createdAt: row.created_at,
+        };
+      }
+
       return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
     }
   );
@@ -148,7 +170,36 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
+      const dbStatus = await db.query('SELECT status FROM job WHERE id = $1', [jobId]);
+      if (dbStatus.rows.length > 0) {
+        return { status: dbStatus.rows[0].status as string };
+      }
+
       return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
     }
   );
+
+  fastify.get<{ Params: { userId: string } }>('/user/:userId/recent', async (request) => {
+    const { userId } = request.params;
+    const result = await db.query<{
+      id: string;
+      finished_at: Date | null;
+      created_at: Date;
+    }>(
+      `
+      SELECT id, finished_at, created_at
+      FROM job
+      WHERE user_id = $1
+      ORDER BY COALESCE(finished_at, created_at) DESC
+      LIMIT 20
+    `,
+      [userId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      finishedAt: row.finished_at,
+      createdAt: row.created_at,
+    }));
+  });
 }

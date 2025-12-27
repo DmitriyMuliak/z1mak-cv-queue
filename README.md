@@ -83,9 +83,9 @@ flowchart LR
 
 ### **3) Cron**
 
-- SCAN `job:*:result` $\rightarrow$ batch upsert to DB, delete keys
+- SCAN `job:*:result` $\rightarrow$ batch upsert to DB, then **set 5-minute TTL** on `job:{id}:{meta|result}` (keeps hot data in Redis for clients that poll right after completion; DB remains source of truth).
 - Cleanup orphan locks
-- `expireStaleJobs` (long waiting/delayed $\rightarrow$ expired, release counters)
+- `expireStaleJobs` (long waiting/delayed $\rightarrow$ expired, release counters; active jobs are handled by BullMQ stalled checks)
 
 ### **3) DB sync**
 
@@ -98,6 +98,7 @@ Redis Results → Batch Cron → DB
 - Current values are read from Redis `config:worker:{lite|hard}:concurrency`.
 - Admin can update via `/admin/worker-concurrency`; workers immediately pick up the change via Pub/Sub `config:update`.
 - Defaults: `lite=8`, `hard=3` (if keys are absent).
+- Worker robustness: stalled detection configured (`stalledInterval=60s`, `lockDuration=60s`, `maxStalledCount=1`) to let BullMQ recycle dead workers instead of cron touching active jobs.
 
 ---
 

@@ -14,6 +14,7 @@ export const createWorkerFactory = ({
   redisUrl,
   handleJob,
 }: CreateWorkerFactoryDeps) => {
+  const stalledMs = 60_000; // must exceed expected job duration
   return (queueType: ModeType, concurrency: number) =>
     new Worker(
       queueNames[queueType],
@@ -23,6 +24,9 @@ export const createWorkerFactory = ({
       {
         connection: { url: redisUrl },
         concurrency,
+        stalledInterval: stalledMs,
+        lockDuration: stalledMs,
+        maxStalledCount: 1,
       }
     );
 };

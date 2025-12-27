@@ -8,8 +8,8 @@ This service is a separate Docker module, consisting of:
 | **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                              |
 | **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                             |
 | **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                        |
-| **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB                                                   |
-| **Cleanup Cron**             | Removes orphan locks / stale jobs, refunds limits                                                                                |
+| **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; keeps Redis hot copies with 5-minute TTL         |
+| **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                 |
 
 The service guarantees:
 
@@ -61,6 +61,7 @@ flowchart TD
 | **DB Persistence**                | No job is lost                                                                                       |
 | **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                              |
 | **Dynamic Worker Concurrency**    | Worker concurrency is read from Redis, updated via Pub/Sub + admin endpoint                          |
+| **Stalled Recovery**              | BullMQ stalled detection configured (60s lock/stalled interval, max stalled count 1) for dead workers|
 | **Scalability**                   | Up to $\text{20–50k RPS}$ without major changes                                                      |
 | **Fault Tolerance**               | Worker crash $\rightarrow$ job requeued, lock auto-expire                                            |
 

@@ -154,6 +154,10 @@ export class FakeRedis {
         commands.push(() => this.hset(key, values));
         return pipe;
       },
+      expire: (key: string, seconds: number) => {
+        commands.push(() => this.expire(key, seconds));
+        return pipe;
+      },
       hgetall: (key: string) => {
         commands.push(() => this.hgetall(key));
         return pipe;

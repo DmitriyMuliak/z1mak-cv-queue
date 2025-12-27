@@ -25,8 +25,8 @@ export const createExpireStaleJobs = ({
     ];
 
     for (const { queue, type } of queueList) {
-      // 'active' need for case when worker fall down after consume limits but before failed/completed
-      const jobs = await queue.getJobs(['waiting', 'delayed', 'active'], 0, 500);
+      // Handle only waiting/delayed jobs; let BullMQ stalled handling manage active ones
+      const jobs = await queue.getJobs(['waiting', 'delayed'], 0, 500);
       for (const job of jobs) {
         if (!job) continue;
         const ageMs = now - (job.timestamp ?? now);
@@ -41,15 +41,11 @@ export const createExpireStaleJobs = ({
         const tokensConsumed = meta.tokens_consumed === 'true';
         const providerCompleted = meta.provider_completed === 'true';
         const modelForTokens = model || meta.processed_model || meta.requested_model;
-        const state = await job.getState();
-        const isActive = state === 'active';
 
-        // Remove only waiting/delayed jobs; leave active ones to avoid clashing with a running worker
-        if (!isActive) {
-          await job.remove();
-        }
+        // Remove only waiting/delayed jobs; active ones are handled by stalled logic
+        await job.remove();
 
-        // For stale active jobs only return limits and mark status; do not touch BullMQ job entry
+        // Return limits only if they were consumed before provider completion
         if (tokensConsumed && modelForTokens && !providerCompleted) {
           await redis.returnTokensAtomic(
             [
@@ -63,8 +59,7 @@ export const createExpireStaleJobs = ({
 
         const finishedAt = new Date().toISOString();
         const updatedAt = finishedAt;
-        const waitingKey =
-          !isActive && model ? redisKeys.queueWaitingModel(model) : '__nil__';
+        const waitingKey = model ? redisKeys.queueWaitingModel(model) : '__nil__';
         const activeKey = userId ? redisKeys.userActiveJobs(userId) : '__nil__';
         const rpdKey = userId
           ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT())

@@ -48,8 +48,10 @@ describe('cron logic', () => {
     const [sql, params] = supabaseQueries[0];
     expect(sql).toContain('INSERT INTO job');
     expect(params).toHaveLength(12);
-    expect(fakeRedis.hashes.has(redisKeys.jobMeta(jobId))).toBe(false);
-    expect(fakeRedis.hashes.has(redisKeys.jobResult(jobId))).toBe(false);
+    expect(fakeRedis.hashes.has(redisKeys.jobMeta(jobId))).toBe(true);
+    expect(fakeRedis.hashes.has(redisKeys.jobResult(jobId))).toBe(true);
+    expect(fakeRedis.ttl(redisKeys.jobMeta(jobId))).toBe(300);
+    expect(fakeRedis.ttl(redisKeys.jobResult(jobId))).toBe(300);
   });
 
   it('cleanupOrphanLocks removes only expired locks', async () => {
