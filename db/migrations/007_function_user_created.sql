@@ -30,4 +30,5 @@ BEGIN
     max_concurrency = EXCLUDED.max_concurrency,
     unlimited = EXCLUDED.unlimited;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;

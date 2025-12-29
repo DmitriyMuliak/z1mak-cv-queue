@@ -17,6 +17,6 @@ ALTER TABLE public.user_limits ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "user_limits_select_own"
 ON public.user_limits
 FOR SELECT
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);
 
 GRANT SELECT ON public.user_limits TO authenticated;

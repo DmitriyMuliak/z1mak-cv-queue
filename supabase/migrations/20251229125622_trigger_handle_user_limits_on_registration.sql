@@ -29,7 +29,8 @@ BEGIN
     max_concurrency = EXCLUDED.max_concurrency,
     unlimited = EXCLUDED.unlimited;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- FN to handle user creation and seed limits
 CREATE OR REPLACE FUNCTION public.handle_user_created_limits()

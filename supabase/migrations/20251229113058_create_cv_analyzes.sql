@@ -22,6 +22,6 @@ ALTER TABLE public.cv_analyzes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "cv_analyzes_select_own"
 ON public.cv_analyzes
 FOR SELECT
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);
 
 GRANT SELECT ON public.cv_analyzes TO authenticated;
