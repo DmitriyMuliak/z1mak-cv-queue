@@ -16,7 +16,7 @@ const isLocalHost = (hostname: string) => {
 };
 
 const createPool = (): Pool => {
-  const connectionString = env.supabaseUrl;
+  const connectionString = env.databaseUrl;
 
   if (!connectionString) {
     // Fail fast on startup if the URL is missing instead of guessing later
@@ -35,7 +35,7 @@ const createPool = (): Pool => {
       ...config,
       ssl: sslDisabled || isLocal ? false : { rejectUnauthorized: true },
       // Recommended settings for worker/server
-      max: 10, // Max clients in pool (Supabase limit 15)
+      max: 10, // Max clients in pool (Supabase limit 15-20)
       idleTimeoutMillis: 30000,
       allowExitOnIdle: true, // Allow process exit even if we have some idle connections
       connectionTimeoutMillis: 5000, // Fail if DB doesn't respond within 5s

@@ -49,3 +49,8 @@ set -a; source .env.development; set +a
 npx ts-node scripts/makeAdminExisting.ts --email "you@example.com"
 npx ts-node scripts/createAdminUser.ts --email "you@example.com" --password "pass123"
 ```
+
+```
+npm run admin:make -- --email "you@example.com"
+npm run admin:create -- --email "you@example.com" --password "pass123"
+```

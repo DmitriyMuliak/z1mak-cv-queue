@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { env } from '../src/config/env';
 
 type AdminUser = {
   id: string;
@@ -32,8 +33,8 @@ if (!email || !password) {
   process.exit(1);
 }
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = env.supabaseUrl;
+const serviceRoleKey = env.supabasePrivateKey;
 
 if (!supabaseUrl || !serviceRoleKey) {
   console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');

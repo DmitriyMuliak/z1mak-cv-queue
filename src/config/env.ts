@@ -4,6 +4,7 @@ export interface EnvConfig {
   queueHardName: string;
   port: number;
   internalApiKey?: string;
+  databaseUrl?: string;
   supabaseUrl?: string;
   supabasePublicKey?: string;
   supabasePrivateKey?: string;
@@ -16,6 +17,9 @@ const numberFromEnv = (value: string | undefined, fallback: number): number => {
 };
 
 const resolvePgUrl = (): string | undefined => {
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
   if (
     process.env.SUPABASE_URL?.includes('127.0.0.1') ||
     process.env.SUPABASE_URL?.includes('localhost')
@@ -26,7 +30,8 @@ const resolvePgUrl = (): string | undefined => {
 };
 
 export const env: EnvConfig = {
-  supabaseUrl: resolvePgUrl(),
+  databaseUrl: resolvePgUrl(),
+  supabaseUrl: process.env.SUPABASE_URL,
   supabasePublicKey: process.env.SUPABASE_PUBLISHEBLE_KEY,
   supabasePrivateKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',

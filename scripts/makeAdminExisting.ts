@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Client } from 'pg';
+import { env } from '../src/config/env';
 
 type AdminUser = {
   id: string;
@@ -31,9 +32,9 @@ if (!email) {
   process.exit(1);
 }
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const dbUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+const supabaseUrl = env.supabaseUrl;
+const serviceRoleKey = env.supabasePrivateKey;
+const dbUrl = env.databaseUrl;
 
 if (!supabaseUrl || !serviceRoleKey) {
   console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');
@@ -44,9 +45,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-const findUserByEmailViaDb = async (
-  targetEmail: string
-): Promise<AdminUser | null> => {
+const findUserByEmailViaDb = async (targetEmail: string): Promise<AdminUser | null> => {
   if (!dbUrl) return null;
 
   const client = new Client({ connectionString: dbUrl });
@@ -67,9 +66,7 @@ const findUserByEmailViaDb = async (
   }
 };
 
-const findUserByEmailViaApi = async (
-  targetEmail: string
-): Promise<AdminUser | null> => {
+const findUserByEmailViaApi = async (targetEmail: string): Promise<AdminUser | null> => {
   const normalized = targetEmail.trim().toLowerCase();
   const perPage = 1000;
   const maxPages = 50;
@@ -79,9 +76,7 @@ const findUserByEmailViaApi = async (
     if (error) throw error;
 
     const users = (data?.users ?? []) as AdminUser[];
-    const match = users.find(
-      (user) => (user.email ?? '').toLowerCase() === normalized
-    );
+    const match = users.find((user) => (user.email ?? '').toLowerCase() === normalized);
 
     if (match) return match;
     if (users.length < perPage) return null;
@@ -91,7 +86,8 @@ const findUserByEmailViaApi = async (
 };
 
 const main = async () => {
-  const user = (await findUserByEmailViaDb(email)) ?? (await findUserByEmailViaApi(email));
+  const user =
+    (await findUserByEmailViaDb(email)) ?? (await findUserByEmailViaApi(email));
 
   if (!user) {
     console.error(`User not found for email: ${email}`);
