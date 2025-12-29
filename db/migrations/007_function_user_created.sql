@@ -15,7 +15,7 @@ BEGIN
     v_unlimited := TRUE;
   ELSE
     v_hard_rpd := 1;
-    v_lite_rpd := 9;
+    v_lite_rpd := 4;
     v_max_concurrency := 2;
     v_unlimited := FALSE;
   END IF;

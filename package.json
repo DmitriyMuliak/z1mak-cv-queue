@@ -22,7 +22,9 @@
     "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
     "build:copy-lua": "shx mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/",
     "supabase": "supabase",
-    "update-db-types": "supabase gen types typescript --local > ./src/types/supabase.ts"
+    "update-db-types": "supabase gen types typescript --local > ./src/types/supabase.ts",
+    "admin:make": "dotenv -e .env.development -- ts-node scripts/makeAdminExisting.ts",
+    "admin:create": "dotenv -e .env.development -- ts-node scripts/createAdminUser.ts"
   },
   "keywords": [],
   "author": "",
@@ -50,6 +52,7 @@
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
+    "dotenv-cli": "^7.4.2",
     "prettier": "^3.3.3",
     "shx": "^0.4.0",
     "supabase": "^2.67.1",

@@ -3,13 +3,14 @@ import { AcquireCode } from '../../types/queueCodes';
 import type { RedisWithScripts } from '../../redis/client';
 import type { UserLimits } from '../../services/limitsCache';
 import type { ModeType } from '../../types/mode';
+import { aiModelIds } from '../../types/ai-models';
 
 type SelectionError = 'CONCURRENCY_LIMIT' | 'USER_RPD_LIMIT' | 'MODEL_LIMIT';
 
 export type ModelSelectionResult =
   | {
       status: 'selected';
-      model: string;
+      model: aiModelIds;
       modelRpm: number;
       modelRpd: number;
     }
@@ -17,7 +18,7 @@ export type ModelSelectionResult =
 
 type SelectParams = {
   redis: RedisWithScripts;
-  modelChain: string[];
+  modelChain: aiModelIds[];
   userId: string;
   isAdmin: boolean;
   userLimits: UserLimits;

@@ -26,12 +26,12 @@
 // Back-end
 1 - Create new Project for DB. (done)
 2 - Setup local db connect for testing proposes. (done)
-3 - Connect to new DB.
+3 - Connect to new DB. (done)
 4 - Update DB Schema. (create new Schema for BE) ---------------- 1
 5 - Revise ENV variables and clean it in docker-compose file. --- 2
-6 - Add mechanism for keep old precessed resume for some time. -- 3
+6 - Add mechanism for keep old precessed resume for some time. -- 3 (done)
 7 - Revise update user limits logic. (add endpoint) ------------- 4
-8 - Get from redis if not exist get from DB and put to the cache. - 5
+8 - Locally get up DB, BE, FE, make call, connect to real DB ---- 5
 9 - Update limits and models (actualize data from google).
 10 - Create fly.io config
 11 - Revise auto restart for processes with fly.io and without.

@@ -62,3 +62,7 @@ npm run supabase -- db diff --project-ref evyllttuifftofzucyed -f remote_changes
 npm run supabase -- db push --db-url "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 Накатити міграцію на локальний Postgres із docker-compose.develop.yml:
 <timestamp>*<name>.sql | docker compose -f docker-compose.develop.yml exec -T db psql -U postgres -d postgres
+
+## Work
+
+npm run supabase -- db reset

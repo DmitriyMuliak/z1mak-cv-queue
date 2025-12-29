@@ -16,7 +16,7 @@ const isLocalHost = (hostname: string) => {
 };
 
 const createPool = (): Pool => {
-  const connectionString = env.pgUrl;
+  const connectionString = env.supabaseUrl;
 
   if (!connectionString) {
     // Fail fast on startup if the URL is missing instead of guessing later

@@ -51,7 +51,7 @@ export const createExpireStaleJobs = ({
             [
               redisKeys.modelRpm(modelForTokens),
               redisKeys.modelRpd(modelForTokens),
-              '__nil__',
+              NILL,
             ],
             [1, minuteTtl, dayTtl, 0]
           );
@@ -59,11 +59,11 @@ export const createExpireStaleJobs = ({
 
         const finishedAt = new Date().toISOString();
         const updatedAt = finishedAt;
-        const waitingKey = model ? redisKeys.queueWaitingModel(model) : '__nil__';
-        const activeKey = userId ? redisKeys.userActiveJobs(userId) : '__nil__';
+        const waitingKey = model ? redisKeys.queueWaitingModel(model) : NILL;
+        const activeKey = userId ? redisKeys.userActiveJobs(userId) : NILL;
         const rpdKey = userId
           ? redisKeys.userTypeRpd(userId, type, getCurrentDatePT())
-          : '__nil__';
+          : NILL;
 
         await redis.expireStaleJob(
           [
@@ -79,3 +79,5 @@ export const createExpireStaleJobs = ({
     }
   };
 };
+
+const NILL = '__nil__';

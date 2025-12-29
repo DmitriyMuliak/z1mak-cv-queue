@@ -41,3 +41,11 @@ All other tests stay excluded from the build output.
 - Integration tests may take longer on first run due to image pulls/builds.
 - Production uses external Supabase/Postgres; the `db` service exists only
   for integration tests.
+
+## Create Admin
+
+```
+set -a; source .env.development; set +a
+npx ts-node scripts/makeAdminExisting.ts --email "you@example.com"
+npx ts-node scripts/createAdminUser.ts --email "you@example.com" --password "pass123"
+```

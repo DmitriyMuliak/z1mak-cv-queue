@@ -8,9 +8,7 @@ export default fp(async (fastify: FastifyInstance) => {
       return reply.status(500).send({ ok: false, error: 'SERVER_MISCONFIGURED' });
     }
 
-    const headerKey =
-      (request.headers['x-internal-api-key'] as string) ||
-      (request.headers['x-internal-key'] as string);
+    const headerKey = request.headers['x-internal-api-key'] as string;
 
     if (!headerKey || headerKey !== env.internalApiKey) {
       return reply.status(401).send({
