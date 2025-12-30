@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import Redis from 'ioredis';
 import { redisKeys } from '../../src/redis/keys';
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../../src/types/mode';
 
 export const composeRequested = process.env.TEST_USE_COMPOSE !== '0';
 export const dockerAvailable = (() => {
@@ -97,12 +97,17 @@ export const waitForApi = async (retries = 60) => {
 };
 
 export const postJob = async (body: RunBody) =>
-  requestApi('/run-ai-job', 'POST', body, {
+  requestApi('/resume/analyze', 'POST', body, {
     'Content-Type': 'application/json',
     'x-internal-api-key': INTERNAL_KEY,
   });
 
-export const seedModelLimits = async (redis: Redis, modelId: string, rpm: number, rpd: number) => {
+export const seedModelLimits = async (
+  redis: Redis,
+  modelId: string,
+  rpm: number,
+  rpd: number
+) => {
   await redis.hset(redisKeys.modelLimits(modelId), { rpm, rpd });
 };
 
@@ -130,7 +135,7 @@ export const waitForJobResult = async (
     if (result && Object.keys(result).length > 0) {
       return result;
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Job ${jobId} did not complete`);
 };
@@ -146,18 +151,31 @@ export const waitForProcessedModel = async (
 
 export const startCompose = async () => {
   if (!usingCompose) return;
-  // execSync(`docker compose -f ${composeFile} up -d --build redis api worker mock-gemini`, {
-  //   stdio: 'inherit',
-  // });
-  execSync(`docker compose -f ${composeFile} up -d redis api worker mock-gemini`, {
-    stdio: 'inherit',
-  });
+
+  // For local debug:
+  // START
+  // First shell
+  // docker compose -f docker-compose.test.yml up -d --build db redis api worker mock-gemini
+  // Second shell
+  // docker compose -f docker-compose.test.yml logs -f api worker
+  // Third shell
+  // TEST_USE_COMPOSE=0 npm test -- rateLimiter.test.ts
+  // STOP
+  // docker compose -f docker-compose.test.yml down
+  execSync(
+    `docker compose -f ${composeFile} up -d --build db redis api worker mock-gemini`,
+    {
+      stdio: 'inherit',
+    }
+  );
   await waitForApi();
 };
 
 export const stopCompose = async () => {
   if (!usingCompose) return;
-  execSync(`docker compose -f ${composeFile} down -v --remove-orphans`, { stdio: 'inherit' });
+  execSync(`docker compose -f ${composeFile} down -v --remove-orphans`, {
+    stdio: 'inherit',
+  });
 };
 
 export const createRedis = () => new Redis(REDIS_URL);

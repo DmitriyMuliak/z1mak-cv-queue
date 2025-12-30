@@ -1,4 +1,4 @@
-import { Mode } from "../../../../../types/mode";
+import { Mode } from '../../../../types/mode';
 
 export const getSystemInstructions = (mode: Mode) => {
   const { evaluationMode, domain } = mode;

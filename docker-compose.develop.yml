@@ -1,0 +1,110 @@
+services:
+  # Основний API сервіс
+  api:
+    build:
+      context: .
+      target: builder
+    restart: unless-stopped
+    command: ['node', 'dist/src/server.js']
+    environment:
+      PORT: '4000'
+      REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
+      DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres?sslmode=disable'
+      BULLMQ_QUEUE: 'ai-jobs'
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-dev-key}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret}
+      TEST_USE_COMPOSE: '1'
+      # В dev зазвичай використовуємо реальний API або той самий mock
+      GEMINI_BASE_URL: 'http://mock-gemini:8080'
+    ports:
+      - '4000:4000'
+    depends_on:
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
+      mock-gemini:
+        condition: service_healthy
+
+  # Worker з підключеним mock-провайдером через -r (preload)
+  worker:
+    build:
+      context: .
+      target: builder
+    restart: unless-stopped
+    command:
+      [
+        'node',
+        '-r',
+        './dist/test/mock/MockGeminiProvider/registerGeminiMock.js',
+        'dist/src/worker/index.js',
+      ]
+    environment:
+      REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
+      DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres'
+      BULLMQ_QUEUE: 'ai-jobs'
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-dev-key}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret}
+      GEMINI_MOCK_URL: 'http://mock-gemini:8080'
+    depends_on:
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
+
+  # Mock сервер для Gemini (залишаємо для dev-ізоляції)
+  mock-gemini:
+    build:
+      context: .
+      target: builder
+    command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
+    environment:
+      PORT: '8080'
+    ports:
+      - '8080:8080' # Залишаємо, щоб ти міг з хоста робити POST на /__config
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8080/health').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '60 1', '--loglevel', 'warning']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      # В Alpine/Standard образах шлях зазвичай такий самий,
+      # але ми додаємо підпапку /data для надійності
+      - supabase_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s # Чистий Postgres стартує значно швидше за Supabase
+
+volumes:
+  redis_data:
+  supabase_db_data:

@@ -1,7 +1,7 @@
-import { Mode } from "../../../../../types/mode";
-import { getImmediateInstruction } from "./getImmediateInstruction";
-import { getSystemInstructions } from "./getSystemInstructions";
-import { getTaskContext } from "./getTaskContext";
+import { Mode } from '../../../../types/mode';
+import { getImmediateInstruction } from './getImmediateInstruction';
+import { getSystemInstructions } from './getSystemInstructions';
+import { getTaskContext } from './getTaskContext';
 
 interface BuildPromptSettingsParams {
   cvDescription: string;

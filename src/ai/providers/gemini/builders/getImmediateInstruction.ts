@@ -1,11 +1,11 @@
-import { Mode } from "../../../../../types/mode";
-import { OrderedListBuilder } from "../utils";
+import { Mode } from '../../../../types/mode';
+import { isHardMode } from '../../../../utils/mode';
+import { OrderedListBuilder } from '../utils';
 
 const getLanguageName = (locale: string) => (locale === 'uk' ? 'Ukrainian' : 'English');
 
-
 export const getImmediateInstruction = (mode: Mode, locale: string) => {
-  const { evaluationMode, domain, depth } = mode;
+  const { evaluationMode, domain } = mode;
   const builder = new OrderedListBuilder();
 
   const langName = getLanguageName(locale);
@@ -42,10 +42,9 @@ export const getImmediateInstruction = (mode: Mode, locale: string) => {
     builder.add(`Focus on "Actionable Improvement Plan" to make this CV market-ready.`);
   }
 
-  const isDeep = depth === 'deep';
-  const isHardMode = evaluationMode === 'byJob' && isDeep;
+  const hardMode = isHardMode(mode);
 
-  if (isHardMode) {
+  if (hardMode) {
     builder.add(
       `Provide a detailed "detailedSkillAnalysis" parsing every skill mentioned.`
     );

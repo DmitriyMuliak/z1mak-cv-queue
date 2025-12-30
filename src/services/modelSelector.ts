@@ -1,28 +1,29 @@
-import type { Mode } from '../../types/mode';
+import { aiModelIds } from '../types/ai-models';
+import type { Mode } from '../types/mode';
+import { isHardMode } from '../utils/mode';
 
 export interface ModelChain {
-  requestedModel: string;
-  fallbackModels: string[];
+  requestedModel: aiModelIds;
+  fallbackModels: aiModelIds[];
 }
 
 export const resolveModelChain = (mode: Mode): ModelChain => {
-  const isHardPreferred =
-    mode.depth === 'deep' || (mode.evaluationMode === 'byJob' && mode.domain === 'it');
+  const isHardPreferred = isHardMode(mode);
 
   if (isHardPreferred) {
     return {
-      requestedModel: 'pro2dot5',
-      fallbackModels: ['flash', 'flashPreview'],
+      requestedModel: 'flash3',
+      fallbackModels: ['flash', 'flashLite'],
     };
   }
 
   return {
     requestedModel: 'flashLite',
-    fallbackModels: ['flashLitePreview', 'flashPreview'],
+    fallbackModels: ['flash'],
   };
 };
 
 export const modelsByType = {
-  hard: ['pro2dot5'],
-  light: ['flash', 'flashPreview', 'flashLite', 'flashLitePreview', 'flashPreview'],
+  hard: ['flash3'],
+  light: ['flash', 'flashLite'],
 };

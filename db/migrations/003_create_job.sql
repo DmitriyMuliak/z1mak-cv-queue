@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS job (
   status TEXT NOT NULL,
   result JSONB NULL,
   error TEXT NULL,
+  error_code TEXT NULL,
+  expired_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   finished_at TIMESTAMPTZ NULL,
   CONSTRAINT job_user_fk FOREIGN KEY (user_id) REFERENCES users(id),

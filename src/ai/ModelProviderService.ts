@@ -1,8 +1,13 @@
-import type { Mode } from '../../types/mode';
+import type { Mode } from '../types/mode';
 import { GeminiProvider } from './providers/gemini/GeminiProvider';
 
+export interface ModelProvider {
+  generate: (payload: ModelJobPayload) => Promise<string>;
+  isRetryableError: (error: unknown) => boolean;
+}
+
 export interface ModelJobPayload {
-  model: string; // Модель, для якої списано токени
+  model: string; // Model tokens were consumed for
   cvDescription: string;
   jobDescription?: string;
   mode: Mode;
@@ -15,15 +20,15 @@ export interface ModelJobResult {
 }
 
 export class ModelProviderService {
-  private geminiProvider: { generate: GeminiProvider['generate'] };
+  private modelProvider: ModelProvider;
 
-  constructor(geminiProvider: { generate: GeminiProvider['generate'] } = new GeminiProvider()) {
-    this.geminiProvider = geminiProvider;
+  constructor(modelProvider: ModelProvider = new GeminiProvider()) {
+    this.modelProvider = modelProvider;
   }
 
   async execute(payload: ModelJobPayload): Promise<ModelJobResult> {
     try {
-      const text = await this.geminiProvider.generate({
+      const text = await this.modelProvider.generate({
         model: payload.model,
         cvDescription: payload.cvDescription,
         jobDescription: payload.jobDescription,
@@ -33,28 +38,9 @@ export class ModelProviderService {
 
       return { text, usedModel: payload.model };
     } catch (error) {
-      const isRetryable = this.isRetryableError(error);
-
-      if (isRetryable) {
-        (error as any).retryable = true;
-      }
-
+      const retryable = this.modelProvider.isRetryableError(error);
+      (error as any).retryable = retryable;
       throw error;
     }
-  }
-
-  private isRetryableError(error: unknown): boolean {
-    const status = this.extractStatus(error);
-    return status === 429 || (typeof status === 'number' && status >= 500);
-  }
-
-  private extractStatus(error: unknown): number | undefined {
-    if (!error) return undefined;
-    const maybeObj = error as any;
-    if (typeof maybeObj.status === 'number') return maybeObj.status;
-    if (typeof maybeObj.code === 'number') return maybeObj.code;
-    if (typeof maybeObj?.error?.code === 'number') return maybeObj.error.code;
-    if (typeof maybeObj?.response?.status === 'number') return maybeObj.response.status;
-    return undefined;
   }
 }

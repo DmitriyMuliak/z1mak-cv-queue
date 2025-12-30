@@ -1,8 +1,17 @@
 import { GoogleGenAI } from '@google/genai';
 import { SchemaService } from '../../schema/SchemaService';
-import type { Mode } from '../../../../types/mode';
+import type { Mode } from '../../../types/mode';
+import { extractMessage, extractStatus, isContextTooLong } from '../../utils/errorUtils';
 import { buildPromptSettings } from './builders/buildPromptSettings';
 import { safetySettings } from './builders/safetySettings';
+import {
+  GEMINI_ERROR_MAP,
+  GEMINI_NOT_RETRIABLE_BY_CODE,
+  GEMINI_NOT_RETRIABLE_BY_STATUS,
+  GEMINI_RETRIABLE_BY_STATUS,
+  extractGeminiErrorCode,
+  normalizeGeminiError,
+} from './errorMapping';
 
 export interface GeminiRequest {
   model: string;
@@ -31,6 +40,7 @@ export class GeminiProvider {
     mode,
     locale,
   }: GeminiRequest): Promise<string> {
+    const started = Date.now();
     const promptSettings = buildPromptSettings({
       cvDescription,
       jobDescription,
@@ -59,43 +69,53 @@ export class GeminiProvider {
 
       return result.text ?? '';
     } catch (error) {
-      throw this.normalizeError(error);
+      throw normalizeGeminiError(error);
+    } finally {
+      const duration = Date.now() - started;
+      // Basic metric: duration per request. In production this can be wired to real metrics sink.
+      console.info(`[Gemini] model=${model} duration_ms=${duration}`);
     }
   }
 
-  private normalizeError(error: unknown): Error {
-    const status = this.extractStatus(error);
+  isRetryableError(error: unknown): boolean {
+    const status = extractStatus(error);
+    const code = extractGeminiErrorCode(error);
+    const message = extractMessage(error);
+    const mappedStatus = status ?? (code ? GEMINI_ERROR_MAP[code]?.httpCode : undefined);
 
-    if (status === 429) {
-      const err = new Error('Gemini rate limit exceeded');
-      (err as any).status = 429;
-      return err;
+    if (GEMINI_NOT_RETRIABLE_BY_CODE[code as keyof typeof GEMINI_NOT_RETRIABLE_BY_CODE]) {
+      return false;
     }
 
-    if (status === 503) {
-      const err = new Error('Gemini service unavailable');
-      (err as any).status = 500;
-      return err;
+    if (
+      GEMINI_NOT_RETRIABLE_BY_STATUS[
+        mappedStatus as keyof typeof GEMINI_NOT_RETRIABLE_BY_STATUS
+      ]
+    ) {
+      return false;
     }
 
-    if (typeof status === 'number') {
-      const err = new Error((error as Error)?.message ?? 'Gemini provider error');
-      (err as any).status = status;
-      return err;
+    if (
+      mappedStatus === GEMINI_ERROR_MAP.INTERNAL.httpCode &&
+      isContextTooLong(message)
+    ) {
+      return false;
     }
 
-    return error instanceof Error ? error : new Error('Unknown Gemini provider error');
-  }
+    if (isContextTooLong(message) && mappedStatus === undefined) {
+      return false;
+    }
 
-  private extractStatus(error: unknown): number | undefined {
-    if (!error) return undefined;
+    if (mappedStatus !== undefined && mappedStatus >= 400 && mappedStatus < 500) {
+      return false;
+    }
 
-    const maybeObj = error as any;
-    if (typeof maybeObj.status === 'number') return maybeObj.status;
-    if (typeof maybeObj.code === 'number') return maybeObj.code;
-    if (typeof maybeObj?.error?.code === 'number') return maybeObj.error.code;
-    if (typeof maybeObj?.response?.status === 'number') return maybeObj.response.status;
+    if (
+      GEMINI_RETRIABLE_BY_STATUS[mappedStatus as keyof typeof GEMINI_RETRIABLE_BY_STATUS]
+    ) {
+      return true;
+    }
 
-    return undefined;
+    return true;
   }
 }

@@ -1,39 +1,44 @@
-# 🚀 **AI Jobs Service — Queue + Worker + API Backend**
+# 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
-Цей сервіс — це ядро системи виконання AI-аналізу.
-Він обробляє задачі з урахуванням:
+This service is the core of the AI analysis execution system.
+It processes jobs considering:
 
-- модельних лімітів (RPM / RPD)
-- лімітів користувачів (daily RPD)
-- одночасних задач (concurrency)
-- fallback моделей
-- retry (BullMQ-native)
-- atomic Redis Lua scripts
-- durable job result state
-- batch DB synchronization
-- HTTP API для запуску задач
+- **Model Limits** (RPM / RPD) — enforced by the worker
+- **User Limits** (daily RPD) + **Concurrency** — enforced by the API via Lua
+- **Model Backpressure** (`queue:waiting` + dynamic `maxQueueLength`)
+- **Model Fallback** (prior to enqueue)
+- **Retry** (BullMQ-native)
+- **Atomic Redis Lua scripts**
+- **Durable Job Result State**
+- **Batch DB Synchronization**
+- **HTTP API** for starting jobs
 
-> **Це НЕ Next.js API.**
-> Next.js лише проксить запити в цей сервіс.
+> **This is NOT a Next.js API.**
+> Next.js only proxies requests to this service.
 
----
+## Local Supabase (Postgres)
 
-# 📚 Зміст
-
-1. Архітектура
-2. Потік даних
-3. Redis структури
-4. Lua скрипти (atomic)
-5. HTTP API (Fastify)
-6. Worker pipeline
-7. Worker fallback FSM
-8. Cron tasks
-9. Health check
-10. Graceful shutdown
+- Start local stack: `npm run supabase start` (uses the bundled Supabase CLI).
+- Postgres URL for this service: `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` (ports match `supabase/config.toml`).
+- Only Postgres is used here; Supabase auth/storage are not required.
 
 ---
 
-# 🧩 1. Архітектурна діаграма
+# 📚 Table of Contents
+
+1.  Architecture
+2.  Data Flow
+3.  Redis Structures
+4.  Lua Scripts (Atomic)
+5.  HTTP API (Fastify)
+6.  Worker Pipeline
+7.  Cron Tasks
+8.  Health Check
+9.  Graceful Shutdown
+
+---
+
+# 🧩 1. Architecture Diagram
 
 ```mermaid
 flowchart LR
@@ -41,33 +46,46 @@ flowchart LR
     Client --> Next[Next.js App]
     Next --> API[Jobs API Server]
 
-    API --> Lua[Redis Lua Checks]
+    API --> Lua[Redis Lua: user RPD + concurrency]
+    API --> BP[Backpressure per model]
     Lua --> Redis[(Redis)]
+    BP --> Redis
 
-    API --> Queue[BullMQ Queue]
+    API --> QueueLite[Queue: lite]
+    API --> QueueHard[Queue: hard]
 
-    Queue --> Worker[Worker Pool]
+    QueueLite --> Worker[Worker Pool]
+    QueueHard --> Worker
+    Worker --> Limits[Model RPM/RPD]
+    Limits --> Redis
     Worker --> Result[Redis Job Result]
 
-    Result --> Sync[DB Sync Cron]
+    Result --> Sync[DB Sync Cron + cleanup]
     Sync --> DB[(Database)]
 ```
 
 ---
 
-# 🔄 2. Потоки даних
+# 🔄 2. Data Flows
 
 ### **1) HTTP API receive job**
 
-```
-Client → Next.js → Jobs API → Lua → Redis → Queue
-```
+- Payload validation, model selection + fallback
+- Lua `combinedCheckAndAcquire`: user RPD (per mode) + concurrency lock + model RPD pre-check
+- Backpressure: `queue:waiting:{model}` does not exceed dynamic `maxQueueLength` (\~30 min SLA) and is not greater than model RPD
+- Write job meta, enqueue into lite/hard queue
 
 ### **2) Worker execution**
 
-```
-Queue → Worker → AI Model → Redis Result
-```
+- Lua `consumeExecutionLimits`: model RPM/RPD (user RPD=0, as it was already deducted in the API)
+- If RPM is exceeded — delayed; if RPD is exceeded — fail
+- Call AI, record result, release counters/locks
+
+### **3) Cron**
+
+- SCAN `job:*:result` $\rightarrow$ batch upsert to DB, then **set 5-minute TTL** on `job:{id}:{meta|result}` (keeps hot data in Redis for clients that poll right after completion; DB remains source of truth).
+- Cleanup orphan locks
+- `expireStaleJobs` (long waiting/delayed $\rightarrow$ expired, release counters; active jobs are handled by BullMQ stalled checks)
 
 ### **3) DB sync**
 
@@ -75,9 +93,16 @@ Queue → Worker → AI Model → Redis Result
 Redis Results → Batch Cron → DB
 ```
 
+### **4) Dynamic Worker Concurrency**
+
+- Current values are read from Redis `config:worker:{lite|hard}:concurrency`.
+- Admin can update via `/admin/worker-concurrency`; workers immediately pick up the change via Pub/Sub `config:update`.
+- Defaults: `lite=8`, `hard=3` (if keys are absent).
+- Worker robustness: stalled detection configured (`stalledInterval=60s`, `lockDuration=60s`, `maxStalledCount=1`) to let BullMQ recycle dead workers instead of cron touching active jobs.
+
 ---
 
-# 🗄 3. Redis Структури
+# 🗄 3. Redis Structures
 
 ### Model Limits
 
@@ -87,12 +112,10 @@ model:{model}:limits
   rpd
 ```
 
-### User Daily RPD
+### User Daily RPD (STRING with TTL)
 
 ```
-user:{id}:daily:{YYYY-MM-DD}
-  used_rpd
-  updated_at
+user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
 ```
 
 ### Concurrency Control
@@ -118,43 +141,25 @@ job:{id}:result
   error
   finished_at
   data
+  used_model
 ```
 
 ---
 
-# 🔥 4. Lua Скрипти
+# 🔥 4. Lua Scripts (Summary)
 
-## Concurrency Check (atomic)
-
-```lua
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-local count = redis.call('ZCARD', KEYS[1])
-if count >= tonumber(ARGV[3]) then return 0 end
-local expiry = tonumber(ARGV[1]) + tonumber(ARGV[2])
-redis.call('ZADD', KEYS[1], expiry, ARGV[4])
-return 1
-```
-
-## User RPD Check
-
-```lua
-local current = redis.call('HGET', KEYS[1], 'used_rpd')
-if not current then current = 0 else current = tonumber(current) end
-if current + tonumber(ARGV[1]) > tonumber(ARGV[2]) then return 0 end
-redis.call('HINCRBY', KEYS[1], 'used_rpd', ARGV[1])
-redis.call('HSET', KEYS[1], 'updated_at', ARGV[3])
-return 1
-```
+- `combinedCheckAndAcquire`: cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, checks model RPD (without consuming); returns code OK / CONCURRENCY / USER_RPD / MODEL_RPD.
+- `consumeExecutionLimits`: atomically checks and consumes model RPM/RPD.
 
 ---
 
 # 🛰 5. HTTP API (Fastify)
 
-Цей сервіс має HTTP API для інтеграції з Next.js / іншими бекендами.
+This service has an HTTP API for integration with Next.js / other backends.
 
-## POST `/run`
+## POST `/resume/analyze`
 
-Запускає аналіз.
+Starts the analysis.
 
 ### Payload:
 
@@ -162,124 +167,82 @@ return 1
 {
   userId: string;
   role: 'user' | 'admin';
-  model: string;
   payload: object;
 }
 ```
 
-### Логіка:
+### Logic:
 
-1. Concurrency check
-2. User RPD check
-3. Model limits check
-4. Fallback через список моделей
-5. Job enqueue
-6. Повернення `{ jobId }`
+1.  Lua: user RPD (per mode) + concurrency lock
+2.  Model selection + fallback (prior to enqueue)
+3.  Backpressure per model (`queue:waiting:{model}` + dynamic cap)
+4.  Job enqueue into lite/hard queue
+5.  Return `{ jobId }`
 
 ---
 
-## GET `/job/:id/status`
+## GET `/resume/:id/status`
 
-Повертає:
+Returns:
 
-- queued
-- in_progress
-- completed
-- failed
+- `queued`
+- `in_progress`
+- `completed`
+- `failed`
 
-## GET `/job/:id/result`
+## GET `/resume/:id/result`
 
-Повертає:
+Returns:
 
 ```ts
 {
   status,
   data?,
   error?,
-  finished_at
+  finished_at,
+  used_model?
 }
 ```
 
-## GET `/healthz`
+## POST `/admin/worker-concurrency`
 
-Перевірка:
+Updates worker concurrency without deployment (requires internal API key):
 
-- Redis доступ
+```json
+{ "queue": "lite" | "hard", "concurrency": 12 }
+```
+
+## GET `/health`
+
+Checks:
+
+- Redis access
 - Queue paused
 - Worker alive
 - Memory/CPU usage
 
 ---
 
-# ⚙️ 6. Worker Logic
+# ⚙️ 6. Worker Logic (High Level)
 
-```ts
-try {
-  const result = await callModel(payload);
-
-  await redis.hset(`job:${id}:result`, {
-    status: 'completed',
-    data: JSON.stringify(result),
-    finished_at: nowUTC(),
-  });
-
-  await removeLock(userId, id);
-} catch (err) {
-  if (err.status === 429 || err.status >= 500) {
-    await job.moveToDelayed(Date.now() + 5000);
-    return;
-  }
-
-  await redis.hset(`job:${id}:result`, {
-    status: 'failed',
-    error: err.message,
-    finished_at: nowUTC(),
-  });
-
-  await removeLock(userId, id);
-}
-```
+- Consume model RPM/RPD (Lua `consumeExecutionLimits`)
+- Retryable errors (500/503/504, etc.) $\rightarrow$ BullMQ retry/delay (`attempts=2`)
+- Non-retryable errors (400/403/404/429/500 context-too-long) $\rightarrow$ `UnrecoverableError` $\rightarrow$ failed, token refund, lock release
+- Release waiting counter / `active_jobs`
 
 ---
 
-# 🔁 7. Worker-Level Fallback Diagram
-
-```mermaid
-flowchart TD
-
-    A[Worker Receives Job] --> B[Call Primary Model]
-
-    B -->|Success| C[Write Completed Result]
-    C --> D[Remove Lock]
-    D --> E[Job Done]
-
-    B -->|429 or 5xx| F[Try Fallback Model]
-
-    F -->|Fallback Exists| B2[Call Fallback]
-    B2 --> B
-
-    F -->|No Fallback Left| G[Retry Delayed]
-
-    G -->|Retry Left| A
-    G -->|No Retry| H[Fail Job]
-
-    H --> I[Remove Lock]
-    I --> J[Job Done]
-```
-
----
-
-# ⏱ 8. Cron Tasks
+# ⏱ 7. Cron Tasks
 
 ## **DB Sync Cron (every 30s)**
 
-1. SCAN `job:*:result`
-2. batch write в DB
-3. DEL processed Redis keys
+1.  SCAN `job:*:result`
+2.  Batch write to DB
+3.  DEL processed Redis keys
 
 ## **Model Limit Refresh (every X min)**
 
-Оновлює:
+Updates:
 
 ```
 model:{name}:limits
@@ -288,26 +251,37 @@ model:{name}:limits
 ## **Orphan Lock Cleanup (hourly)**
 
 - SCAN `user:*:active_jobs`
-- видаляє ті jobID, яких нема в BullMQ
+- Removes `jobID`s that are not present in BullMQ
 
 ---
 
-# 🩺 9. Health Check
+# 🩺 8. Health Check
 
 ```json
 {
+  "db": "ok",
   "redis": "ok",
-  "queue": "running",
+  "queue": "ok",
   "workers": 3,
   "uptime": 551232,
   "cpu": "normal",
-  "memory": "normal"
+  "memory": "normal",
+  "queueState": { "ready": "queueReady", "paused": "litePaused || hardPaused" },
+  "db_pool": {
+    "total": 10,
+    "waiting": 3
+  },
+  "metrics": {
+    "ram_rss_mb": 120,
+    "cpu_load_1m": 2,
+    "uptime_s": 53223123
+  }
 }
 ```
 
 ---
 
-# 📴 10. Graceful Shutdown
+# 📴 9. Graceful Shutdown
 
 ```ts
 async function shutdown() {
@@ -319,9 +293,3 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 ```
-
----
-
-# 🎉 Готово
-
-Дякую що дочитали до кінця 💘
