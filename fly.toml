@@ -7,25 +7,26 @@ primary_region = "arn" # fly platform regions
 
 [deploy]
   # "rolling" дешевше і стабільніше для мікро-машин, ніж "bluegreen"
-  strategy = "bluegreen"
+  strategy = "rolling"
 
 # ===============================================
 # 🚀 0. Processes
 # ===============================================
 
 [processes]
-  web = "node dist/server.js"
+  web = "node dist/src/server.js"
   worker = "node dist/src/worker/index.js"
-  redis = "redis-server --save 60 1 --appendonly no"
+  # Important: використовуємо повний шлях до бінарника, який є в офіційному образі Redis
+  # redis = "redis-server --dir /data/redis --save 60 1 --appendonly no"
 
 # ===============================================
 # 🚀 1. Volumes
 # ===============================================
-[[mounts]]
+# [[mounts]]
   # fly volumes create redis_data --region arn --size 1
-  source = "redis_data"   # Name which we give to the volume on creation
-  destination = "/data/redis" # Path inside the container
-  processes = ["redis"]      # IMPORTANT: disk is attached ONLY to the redis process
+  # source = "redis_data"   # Name which we give to the volume on creation
+  # destination = "/data/redis" # Path inside the container
+  # processes = ["redis"]      # IMPORTANT: disk is attached ONLY to the redis process
 
 # ===============================================
 # 🚀 2. VM Resources
@@ -42,11 +43,12 @@ primary_region = "arn" # fly platform regions
   cpus = 1
   memory_mb = 256
 
-[[vm]]
-  processes = ["redis"]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 256
+# [[vm]]
+#   processes = ["redis"]
+#   image = "redis:7-alpine" # Because we don't have redis in our main Dockerfile
+#   cpu_kind = "shared"
+#   cpus = 1
+#   memory_mb = 256
 
 # -----------------------------------------------
 # WEB (API Server) -
@@ -85,13 +87,13 @@ primary_region = "arn" # fly platform regions
 # REDIS (Internal only)
 # -----------------------------------------------
 
-[[services]]
-  processes = ["redis"]
-  internal_port = 6379
-  protocol = "tcp"
+# [[services]]
+#   processes = ["redis"]
+#   internal_port = 6379
+#   protocol = "tcp"
 
-  min_machines_running = 1
+#   min_machines_running = 1
 
-  [[services.tcp_checks]]
-    interval = "20s"
-    timeout = "2s"
+#   [[services.tcp_checks]]
+#     interval = "20s"
+#     timeout = "2s"

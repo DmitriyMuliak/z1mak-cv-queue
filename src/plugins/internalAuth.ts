@@ -4,6 +4,10 @@ import { env } from '../config/env';
 
 export default fp(async (fastify: FastifyInstance) => {
   fastify.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (request.url === '/health') {
+      return;
+    }
+
     if (!env.internalApiKey) {
       return reply.status(500).send({ ok: false, error: 'SERVER_MISCONFIGURED' });
     }
