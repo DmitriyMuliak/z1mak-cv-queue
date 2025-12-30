@@ -1,17 +1,52 @@
 # fly.toml
 app = "ai-job-processor"
-primary_region = "iad" # Chose closest region
+primary_region = "arn" # fly platform regions
 
 [build]
   dockerfile = "Dockerfile"
 
+[deploy]
+  # "rolling" дешевше і стабільніше для мікро-машин, ніж "bluegreen"
+  strategy = "bluegreen"
+
 # ===============================================
-# 🚀 1. API (Web Process)
+# 🚀 0. Processes
 # ===============================================
 
 [processes]
   web = "node dist/server.js"
   worker = "node dist/src/worker/index.js"
+  redis = "redis-server --save 60 1 --appendonly no"
+
+# ===============================================
+# 🚀 1. Volumes
+# ===============================================
+[[mounts]]
+  # fly volumes create redis_data --region arn --size 1
+  source = "redis_data"   # Name which we give to the volume on creation
+  destination = "/data/redis" # Path inside the container
+  processes = ["redis"]      # IMPORTANT: disk is attached ONLY to the redis process
+
+# ===============================================
+# 🚀 2. VM Resources
+# ===============================================
+[[vm]]
+  processes = ["web"]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+[[vm]]
+  processes = ["worker"]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+[[vm]]
+  processes = ["redis"]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
 
 # -----------------------------------------------
 # WEB (API Server) -
@@ -23,6 +58,10 @@ primary_region = "iad" # Chose closest region
 [[services]]
   processes = ["web"]
   internal_port = 4000
+  # AUTO_STOP: if no traffic = $0 for that time
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
 
   [[services.http_checks]]
     interval = "20s"      # Slightly increased interval to give the DB breathing room
@@ -41,3 +80,18 @@ primary_region = "iad" # Chose closest region
   [[services.ports]]
     port = 443
     handlers = ["tls", "http"]
+
+# -----------------------------------------------
+# REDIS (Internal only)
+# -----------------------------------------------
+
+[[services]]
+  processes = ["redis"]
+  internal_port = 6379
+  protocol = "tcp"
+
+  min_machines_running = 1
+
+  [[services.tcp_checks]]
+    interval = "20s"
+    timeout = "2s"
