@@ -33,5 +33,22 @@ export const JobIdParamsSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const UserIdParamsSchema = Type.Object(
+  {
+    userId: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+
+export const RecentUserQuerySchema = Type.Object(
+  {
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false }
+);
+
 export type RunAiJobBody = Static<typeof RunAiJobBodySchema>;
 export type JobIdParams = Static<typeof JobIdParamsSchema>;
+export type UserIdParams = Static<typeof UserIdParamsSchema>;
+export type RecentUserQuery = Static<typeof RecentUserQuerySchema>;

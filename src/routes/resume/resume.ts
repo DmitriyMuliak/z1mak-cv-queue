@@ -12,11 +12,16 @@ import { enqueueJob } from './enqueueJob';
 import {
   JobIdParams,
   JobIdParamsSchema,
+  RecentUserQuery,
+  RecentUserQuerySchema,
   RunAiJobBody,
   RunAiJobBodySchema,
+  UserIdParams,
+  UserIdParamsSchema,
 } from './schema';
 import { parseMaybeJson } from '../../utils/parseJson';
 import { ModeType } from '../../types/mode';
+import { numberFromQuery } from '../../utils/queryUtils';
 
 const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
 
@@ -179,27 +184,37 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
     }
   );
 
-  fastify.get<{ Params: { userId: string } }>('/user/:userId/recent', async (request) => {
-    const { userId } = request.params;
-    const result = await db.query<{
-      id: string;
-      finished_at: Date | null;
-      created_at: Date;
-    }>(
-      `
-      SELECT id, finished_at, created_at
-      FROM job
-      WHERE user_id = $1
-      ORDER BY COALESCE(finished_at, created_at) DESC
-      LIMIT 20
-    `,
-      [userId]
-    );
+  fastify.get<{ Params: UserIdParams; Querystring: RecentUserQuery }>(
+    '/user/:userId/recent',
+    { schema: { params: UserIdParamsSchema, querystring: RecentUserQuerySchema } },
+    async (request) => {
+      const { userId } = request.params;
+      const limit = Math.min(
+        Math.max(1, Math.floor(numberFromQuery(request.query.limit, 20))),
+        100
+      );
+      const offset = Math.max(0, Math.floor(numberFromQuery(request.query.offset, 0)));
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      finishedAt: row.finished_at,
-      createdAt: row.created_at,
-    }));
-  });
+      const result = await db.query<{
+        id: string;
+        finished_at: Date | null;
+        created_at: Date;
+      }>(
+        `
+        SELECT id, finished_at, created_at
+        FROM cv_analyzes
+        WHERE user_id = $1
+        ORDER BY COALESCE(finished_at, created_at) DESC
+        LIMIT $2 OFFSET $3
+      `,
+        [userId, limit, offset]
+      );
+
+      return result.rows.map((row) => ({
+        id: row.id,
+        finishedAt: row.finished_at,
+        createdAt: row.created_at,
+      }));
+    }
+  );
 }

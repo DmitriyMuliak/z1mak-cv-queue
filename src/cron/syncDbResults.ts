@@ -39,6 +39,7 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
 
         const rows: JobRow[] = [];
         const keysToExpire: string[] = [];
+        const syncedResultKeys: string[] = [];
 
         // --- 2. Parse results ---
         for (let i = 0; i < slice.length; i++) {
@@ -59,6 +60,12 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
             continue;
           }
 
+          if (result.synced_at) {
+            continue;
+          }
+
+          console.log('[Cron] syncDbResults result processing job:', { result, meta });
+
           rows.push({
             jobId,
             user_id: meta.user_id || null,
@@ -74,6 +81,7 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
             expired_at: result.expired_at || null,
           });
           keysToExpire.push(resultKey, redisKeys.jobMeta(jobId));
+          syncedResultKeys.push(resultKey);
         }
 
         if (rows.length === 0) {
@@ -112,7 +120,7 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
 
         await client.query(
           `
-          INSERT INTO job (id, user_id, resume_id, requested_model, processed_model, status, result, error, error_code, created_at, finished_at, expired_at)
+          INSERT INTO cv_analyzes (id, user_id, resume_id, requested_model, processed_model, status, result, error, error_code, created_at, finished_at, expired_at)
           VALUES ${placeholders}
           ON CONFLICT (id) DO UPDATE SET
             status = EXCLUDED.status,
@@ -126,9 +134,13 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
           values
         );
 
-        // --- 4. Expire Redis data to keep it hot for a short window ---
-        if (keysToExpire.length > 0) {
+        // --- 4. Mark as synced and expire Redis data to keep it hot for a short window ---
+        if (keysToExpire.length > 0 || syncedResultKeys.length > 0) {
           const expirePipeline = redis.pipeline();
+          const syncedAt = new Date().toISOString();
+          for (const resultKey of syncedResultKeys) {
+            expirePipeline.hset(resultKey, { synced_at: syncedAt });
+          }
           for (const key of keysToExpire) {
             expirePipeline.expire(key, SYNCED_DATA_TTL_SECONDS);
           }

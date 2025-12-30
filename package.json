@@ -7,6 +7,7 @@
   "scripts": {
     "start": "docker compose -f docker-compose.develop.yml up",
     "start:build": "docker compose -f docker-compose.develop.yml up --build",
+    "start:without-db": "docker compose --env-file .env.development -f docker-compose.develop-without-db.yml up",
     "start:api": "node dist/server.js",
     "start:worker": "node dist/src/worker/index.js",
     "start:cron": "node dist/src/cron/index.js",

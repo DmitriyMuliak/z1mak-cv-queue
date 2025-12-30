@@ -10,7 +10,7 @@ type MockConfig = {
   delayMs: number;
 };
 
-type RequestBody = {
+export type RequestBody = {
   model: string;
   cvDescription: string;
   jobDescription?: string;
@@ -21,7 +21,7 @@ type RequestBody = {
 const config: MockConfig = {
   mode: 'success',
   status: 500,
-  text: 'mocked gemini text',
+  text: JSON.stringify({ data: 'mocked gemini text' }),
   delayMs: 0,
 };
 
@@ -45,8 +45,6 @@ app.post('/__config', async (request, reply) => {
 });
 
 app.post('/', async (request, reply) => {
-  const body = request.body as RequestBody;
-
   if (config.delayMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, config.delayMs));
   }
@@ -56,7 +54,7 @@ app.post('/', async (request, reply) => {
   }
 
   return reply.send({
-    text: `${config.text} for ${body.model}`,
+    text: `${config.text}`,
   });
 });
 
@@ -85,3 +83,29 @@ const shutdown = async () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// Example of use
+
+// Fetch to analyze resume
+// fetch('http://localhost:8080/', {
+//   method: 'POST',
+//   headers: { 'content-type': 'application/json' },
+//   body: JSON.stringify({
+//     model: 'gemini-1.5-flash',
+//     cvDescription: 'test cv',
+//     jobDescription: '',
+//     mode: { evaluationMode: 'general', domain: 'it', depth: 'deep' },
+//     locale: 'uk',
+//   }),
+// });
+
+// Example of configuring the mock server
+// fetch('http://localhost:8080/__config', {
+//   method: 'POST',
+//   headers: { 'content-type': 'application/json' },
+//   body: JSON.stringify({
+//     mode: 'success',
+//     text: JSON.stringify({ data: 'mocked gemini text' }),
+//     delayMs: 0,
+//   }),
+// });
