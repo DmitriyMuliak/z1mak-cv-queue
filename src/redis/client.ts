@@ -26,9 +26,29 @@ export interface RedisWithScripts extends Redis {
   decrAndClampToZero(keys: [string]): Promise<number>;
 }
 
+const resolveRedisFamily = (): RedisOptions['family'] => {
+  const override = process.env.REDIS_FAMILY;
+  if (override) {
+    const parsed = Number(override);
+    if (parsed === 4 || parsed === 6) return parsed;
+  }
+
+  try {
+    const hostname = new URL(env.redisUrl).hostname;
+    if (hostname.endsWith('.internal')) {
+      return 6; // Fly.io internal DNS resolves AAAA only
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+};
+
 export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts => {
+  const family = resolveRedisFamily();
   const client = new Redis(env.redisUrl, {
-    family: 6, // (Force IPv6) REQUIRED for Fly.io internal network
+    ...(family ? { family } : {}),
     lazyConnect: true,
     connectTimeout: 10000,
     retryStrategy(times) {

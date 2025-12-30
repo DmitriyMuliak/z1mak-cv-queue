@@ -8,6 +8,7 @@ services:
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
       DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres?sslmode=disable'
       BULLMQ_QUEUE: 'ai-jobs'
       GEMINI_API_KEY: 'dummy'
@@ -31,6 +32,7 @@ services:
       ]
     environment:
       REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
       DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres'
       BULLMQ_QUEUE: 'ai-jobs'
       GEMINI_API_KEY: 'dummy'

@@ -7,6 +7,7 @@ services:
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres?sslmode=disable}
       BULLMQ_QUEUE: 'ai-jobs'
       GEMINI_API_KEY: ${GEMINI_API_KEY:-dev-key}
@@ -35,6 +36,7 @@ services:
       ]
     environment:
       REDIS_URL: 'redis://redis:6379'
+      REDIS_FAMILY: '4'
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres?sslmode=disable}
       BULLMQ_QUEUE: 'ai-jobs'
       GEMINI_API_KEY: ${GEMINI_API_KEY:-dev-key}
