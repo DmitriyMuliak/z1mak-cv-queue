@@ -64,8 +64,6 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
             continue;
           }
 
-          console.log('[Cron] syncDbResults result processing job:', { result, meta });
-
           rows.push({
             jobId,
             user_id: meta.user_id || null,
