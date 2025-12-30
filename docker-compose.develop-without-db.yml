@@ -1,7 +1,9 @@
 services:
   # Основний API сервіс
   api:
-    build: .
+    build:
+      context: .
+      target: builder
     restart: unless-stopped
     command: ['node', 'dist/src/server.js']
     environment:
@@ -25,7 +27,9 @@ services:
 
   # Worker з підключеним mock-провайдером через -r (preload)
   worker:
-    build: .
+    build:
+      context: .
+      target: builder
     restart: unless-stopped
     command:
       [
@@ -48,7 +52,9 @@ services:
 
   # Mock сервер для Gemini (залишаємо для dev-ізоляції)
   mock-gemini:
-    build: .
+    build:
+      context: .
+      target: builder
     command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
     environment:
       PORT: '8080'

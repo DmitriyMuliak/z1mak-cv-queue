@@ -3,7 +3,9 @@
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      target: builder
     command: ['node', 'dist/src/server.js']
     environment:
       PORT: '4000'
@@ -22,7 +24,9 @@ services:
       - mock-gemini
 
   worker:
-    build: .
+    build:
+      context: .
+      target: builder
     command:
       [
         'node',
@@ -44,7 +48,9 @@ services:
       - mock-gemini
 
   mock-gemini:
-    build: .
+    build:
+      context: .
+      target: builder
     command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
     ports:
       - '8080:8080'

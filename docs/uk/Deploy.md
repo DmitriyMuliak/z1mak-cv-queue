@@ -27,6 +27,7 @@ fly secrets list --app ai-job-processor
 
 ```
 fly deploy
+fly machine start 287e605a090218 --app ai-job-processor
 ```
 
 # Volumes
