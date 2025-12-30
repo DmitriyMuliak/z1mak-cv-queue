@@ -1,26 +1,32 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-slim AS builder
+# --- Stage 1: Builder ---
+FROM node:24-slim AS builder
 WORKDIR /app
 
-ENV NODE_ENV=development
+# Install build dependencies (required for compiling native node modules)
+# RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
 
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-COPY test ./test
-COPY README.md ./README.md
-
+COPY . .
 RUN npm run build
 
-FROM node:20-slim AS runner
+# --- Stage 2: Runner ---
+FROM node:24-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+RUN chown node:node /app
+USER node
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder --chown=node:node /app/dist ./dist
+
+EXPOSE 4000
+
+CMD ["node", "dist/src/server.js"]
