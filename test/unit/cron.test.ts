@@ -46,7 +46,7 @@ describe('cron logic', () => {
 
     expect(supabaseQueries.length).toBe(1);
     const [sql, params] = supabaseQueries[0];
-    expect(sql).toContain('INSERT INTO job');
+    expect(sql).toContain('INSERT INTO cv_analyzes');
     expect(params).toHaveLength(12);
     expect(fakeRedis.hashes.has(redisKeys.jobMeta(jobId))).toBe(true);
     expect(fakeRedis.hashes.has(redisKeys.jobResult(jobId))).toBe(true);

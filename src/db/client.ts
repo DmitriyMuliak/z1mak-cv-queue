@@ -33,7 +33,8 @@ const createPool = (): Pool => {
 
     config = {
       ...config,
-      ssl: sslDisabled || isLocal ? false : { rejectUnauthorized: true },
+      // Need to handle self-signed certificates on Supabase
+      ssl: sslDisabled || isLocal ? false : { rejectUnauthorized: false }, // ca: fs.readFileSync('./path-to-supabase-ca.crt').toString(),
       // Recommended settings for worker/server
       max: 10, // Max clients in pool (Supabase limit 15-20)
       idleTimeoutMillis: 30000,
@@ -63,7 +64,8 @@ export const isConnected = async (): Promise<boolean> => {
   try {
     await pool.query('SELECT 1');
     return true;
-  } catch {
+  } catch (err) {
+    console.error('[DB Check Error]:', err);
     return false;
   }
 };

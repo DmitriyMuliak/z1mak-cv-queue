@@ -1,49 +1,15 @@
-1 -
+1 - Потрібно налаштувати (створити) github actions (on PR) які будуть:
+1.1 - Запускати lint
+1.2 - Запускати build
+1.3 - Запускати test:unit
 
-# -f (file) — вказує шлях до SQL файлу
+2 - Потрібно налаштувати (створити) github actions (on Megre to master) які будуть:
+2.1 - Запускати lint
+2.2 - Запускати build
+2.3 - Запускати test
+2.4 - Деплоїти на fly.io
 
-# -v ON_ERROR_STOP=1 — зупинить виконання, якщо в SQL є помилка (best practice)
-
-psql -U postgres -d target_db -f /path/to/script.sql -v ON_ERROR_STOP=1
-
-# -it: інтерактивний режим
-
-# -u postgres: запуск від імені системного юзера postgres всередині Linux в контейнері
-
-docker exec -it 5140f072ae7d psql -U postgres -d postgres -f ./db/migrations/000_enable_extensions.sql -v ON_ERROR_STOP=1
-
-C:\Users\User\Desktop\z1mak-cv-queue\db\migrations\000_enable_extensions.sql
-
-...
-import fp from 'fastify-plugin';
-import { db } from './pgClient'; // ваш файл
-
-export default fp(async (fastify) => {
-// Додаємо вашу абстракцію в інстанс fastify
-fastify.decorate('db', db);
-
-// Грейсфул шатдаун: коли fastify зупиняється, закриваємо пул
-fastify.addHook('onClose', async () => {
-await db.end();
-});
-});
-
-import { db } from '../pgClient';
-import { Redis } from 'ioredis';
-
-declare module 'fastify' {
-interface FastifyInstance {
-db: typeof db;
-redis: Redis;
-}
-}
-
-CREATE SCHEMA backend_ai;
-
-CREATE TABLE backend_ai.analysis_queue (
-id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-data jsonb,
-status text
-);
-
-
+3 - Налаштувати fly.toml та docker-compose.yml
+3.1 - Перевірити налаштування fly.toml
+3.2 - docker-compose.yml має використовувати змінні .env (які я через CLI маю задати у fly.io)
+3.3 - api має залежати від db (remote supabase) - треба якось робити health check.
