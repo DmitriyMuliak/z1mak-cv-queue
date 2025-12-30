@@ -27,7 +27,15 @@ export interface RedisWithScripts extends Redis {
 }
 
 export const createRedisClient = (options: RedisOptions = {}): RedisWithScripts => {
-  const client = new Redis(env.redisUrl, options);
+  const client = new Redis(env.redisUrl, {
+    family: 6, // (Force IPv6) REQUIRED for Fly.io internal network
+    lazyConnect: true,
+    connectTimeout: 10000,
+    retryStrategy(times) {
+      return Math.min(times * 50, 2000);
+    },
+    ...options,
+  });
 
   client.defineCommand('combinedCheckAndAcquire', {
     numberOfKeys: 3,

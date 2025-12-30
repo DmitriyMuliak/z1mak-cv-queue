@@ -47,6 +47,18 @@ export default async function healthRoutes(fastify: FastifyInstance) {
       const pool = db.getPool();
       const memory = process.memoryUsage();
 
+      if (!isHealthy) {
+        fastify.log.error(
+          {
+            redisPing,
+            dbOk,
+            qLiteReady,
+            qHardReady,
+          },
+          'Health check failed'
+        );
+      }
+
       return reply.code(isHealthy ? 200 : 503).send({
         status: isHealthy ? 'ok' : 'error',
         timestamp: new Date().toISOString(),

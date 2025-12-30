@@ -39,3 +39,6 @@ fly logs
 fly machines list
 fly machines stop
 fly platform regions
+fly machines list --app ai-job-processor
+fly status -a ai-job-processor-redis
+fly volumes list -a ai-job-processor-redis
