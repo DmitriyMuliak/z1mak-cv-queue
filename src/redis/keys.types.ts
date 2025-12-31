@@ -7,8 +7,11 @@ export type RedisJobResultStatus = 'completed' | 'failed';
 export interface RedisModelLimitsHash {
   rpm: string; // numeric string
   rpd: string; // numeric string
+  api_name?: string;
   updated_at?: string;
 }
+
+export type RedisModelIdsSet = string[];
 
 export interface RedisUserLimitsHash {
   role: 'user' | 'admin';
@@ -47,6 +50,7 @@ export type RedisUserActiveJobs = string[]; // ZSET of job ids for concurrency l
 
 export interface RedisKeyTypeMap {
   modelLimits: RedisModelLimitsHash;
+  modelIds: RedisModelIdsSet;
   modelRpm: RedisCounterValue;
   modelRpd: RedisCounterValue;
   userTypeRpd: RedisCounterValue;

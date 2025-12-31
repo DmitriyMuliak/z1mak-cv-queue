@@ -139,9 +139,10 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         error: string | null;
         finished_at: Date | null;
         created_at: Date;
-      }>('SELECT status, result, error, finished_at, created_at FROM job WHERE id = $1', [
-        jobId,
-      ]);
+      }>(
+        'SELECT status, result, error, finished_at, created_at FROM cv_analyzes WHERE id = $1',
+        [jobId]
+      );
       if (dbResult.rows.length > 0) {
         const row = dbResult.rows[0];
         return {
@@ -175,7 +176,9 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
-      const dbStatus = await db.query('SELECT status FROM job WHERE id = $1', [jobId]);
+      const dbStatus = await db.query('SELECT status FROM cv_analyzes WHERE id = $1', [
+        jobId,
+      ]);
       if (dbStatus.rows.length > 0) {
         return { status: dbStatus.rows[0].status as string };
       }

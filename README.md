@@ -79,6 +79,7 @@ flowchart LR
 
 - Lua `consumeExecutionLimits`: model RPM/RPD (user RPD=0, as it was already deducted in the API)
 - If RPM is exceeded — delayed; if RPD is exceeded — fail
+- Resolves provider model name from Redis `model:{id}:limits.api_name` (loaded from DB)
 - Call AI, record result, release counters/locks
 
 ### **3) Cron**
@@ -110,6 +111,13 @@ Redis Results → Batch Cron → DB
 model:{model}:limits
   rpm
   rpd
+  api_name
+```
+
+### Model Catalog
+
+```
+models:ids (SET) = list of model ids loaded from DB
 ```
 
 ### User Daily RPD (STRING with TTL)

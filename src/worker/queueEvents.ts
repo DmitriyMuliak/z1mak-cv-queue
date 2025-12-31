@@ -17,7 +17,7 @@ export const createQueueEventsRegistrar = ({
   return (queueEvent: QueueEvents, queueType: ModeType) => {
     queueEvent.on('failed', async ({ jobId, failedReason }) => {
       const queue = queues[queueType];
-      const job = await queue.getJob(jobId as string);
+      const job = await queue.getJob(jobId);
       if (!job) {
         console.warn(`[Worker] failed event but job not found: ${jobId}`);
         return;
@@ -30,7 +30,7 @@ export const createQueueEventsRegistrar = ({
         return;
       }
 
-      const meta = await redis.hgetall(redisKeys.jobMeta(jobId as string));
+      const meta = await redis.hgetall(redisKeys.jobMeta(jobId));
 
       if (!meta || Object.keys(meta).length === 0) {
         console.warn(`[QueueEvents] No metadata for job ${jobId} — skipping.`);
@@ -50,16 +50,21 @@ export const createQueueEventsRegistrar = ({
       const reason = failedReason || 'provider_error';
       const limitReasons = new Set(['MODEL_RPD_EXCEEDED', 'USER_RPD_EXCEEDED']);
       const errorCode = limitReasons.has(reason) ? 'limit' : 'provider_error';
+      const failedAt = new Date().toISOString();
 
       const pipe = redis.pipeline();
-      pipe.hset(redisKeys.jobResult(jobId as string), {
+      pipe.hset(redisKeys.jobResult(jobId), {
         status: 'failed',
         error: reason,
         error_code: errorCode,
-        finished_at: new Date().toISOString(),
+        finished_at: failedAt,
+      });
+      pipe.hset(redisKeys.jobMeta(jobId), {
+        status: 'failed',
+        updated_at: failedAt,
       });
       if (userId) {
-        pipe.zrem(redisKeys.userActiveJobs(userId), jobId as string);
+        pipe.zrem(redisKeys.userActiveJobs(userId), jobId);
       }
       await pipe.exec();
       if (model) {
