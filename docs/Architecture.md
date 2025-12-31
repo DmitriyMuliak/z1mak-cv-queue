@@ -137,22 +137,29 @@ Used in Locks, Job Results, Per-User RPD
 model:{name}:limits
   rpm
   rpd
+  api_name
   updated_at
 ```
 
-## 7.2 Per-user RPD (STRING with TTL)
+## 7.2 Model Catalog (SET)
+
+```
+models:ids = list of model ids loaded from DB
+```
+
+## 7.3 Per-user RPD (STRING with TTL)
 
 ```
 user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
 ```
 
-## 7.3 Queue Waiting per Model (STRING)
+## 7.4 Queue Waiting per Model (STRING)
 
 ```
 queue:waiting:{model} = current enqueued/waiting count
 ```
 
-## 7.4 Concurrency Locks (ZSET)
+## 7.5 Concurrency Locks (ZSET)
 
 ```
 user:{id}:active_jobs
@@ -162,7 +169,7 @@ user:{id}:active_jobs
 
 Self-cleaning on every write.
 
-## 7.5 Job Metadata (HASH)
+## 7.6 Job Metadata (HASH)
 
 ```
 job:{id}:meta
@@ -177,7 +184,7 @@ job:{id}:meta
   status
 ```
 
-## 7.6 Job Result (HASH)
+## 7.7 Job Result (HASH)
 
 ```
 job:{id}:result
@@ -201,11 +208,12 @@ job:{id}:result
 # 🏗️ 9. **Worker Execution Pipeline** (Current)
 
 1.  Marks job as "in_progress" (`job:meta`).
-2.  Calls **`ModelProviderService.execute`** (executes only one model).
-3.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
-4.  If **retryable (500/503/504/other temporary errors)** $\rightarrow$ throws exception, **BullMQ** performs backoff retry ($\text{attempts}=2$).
-5.  If **non-retryable (400/403/404/429/500 context-too-long)** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed` immediately.
-6.  **`queueEvents.on('failed')`** is triggered $\rightarrow$ **refunds tokens** (`returnTokens`) and records final `failed` status.
+2.  Resolves provider model name from `model:{id}:limits.api_name` (loaded from DB at startup).
+3.  Calls **`ModelProviderService.execute`** (executes only one model).
+4.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
+5.  If **retryable (500/503/504/other temporary errors)** $\rightarrow$ throws exception, **BullMQ** performs backoff retry ($\text{attempts}=2$).
+6.  If **non-retryable (400/403/404/429/500 context-too-long)** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed` immediately.
+7.  **`queueEvents.on('failed')`** is triggered $\rightarrow$ **refunds tokens** (`returnTokens`) and records final `failed` status.
 
 ---
 

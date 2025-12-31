@@ -1,5 +1,6 @@
 export const redisKeys = {
   modelLimits: (name: string) => `model:${name}:limits`,
+  modelIds: () => 'models:ids',
   modelRpm: (name: string) => `model:${name}:rpm`,
   modelRpd: (name: string) => `model:${name}:rpd`,
   userTypeRpd: (userId: string, type: 'hard' | 'lite', date: string) =>

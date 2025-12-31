@@ -22,6 +22,12 @@ export const GEMINI_MOCK_CONFIG_URL =
   process.env.GEMINI_MOCK_CONFIG_URL ?? 'http://localhost:8080/__config';
 export const INTERNAL_KEY = process.env.TEST_INTERNAL_KEY ?? 'internal-secret';
 
+const DEFAULT_MODEL_API_NAMES: Record<string, string> = {
+  flash3: 'gemini-1.5-pro',
+  flash: 'gemini-1.5-flash',
+  flashLite: 'gemini-1.5-flash-8b',
+};
+
 export type RunBody = {
   userId: string;
   role: 'user' | 'admin';
@@ -108,7 +114,9 @@ export const seedModelLimits = async (
   rpm: number,
   rpd: number
 ) => {
-  await redis.hset(redisKeys.modelLimits(modelId), { rpm, rpd });
+  const apiName = DEFAULT_MODEL_API_NAMES[modelId] ?? modelId;
+  await redis.sadd(redisKeys.modelIds(), modelId);
+  await redis.hset(redisKeys.modelLimits(modelId), { rpm, rpd, api_name: apiName });
 };
 
 export const configureMockGemini = async (config: {

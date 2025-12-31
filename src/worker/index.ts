@@ -14,6 +14,7 @@ import { finalizeFailure } from './finalizeFailure';
 import { createHandleJob } from './handleJob';
 import { createWorkerFactory } from './createWorker';
 import { createConfigSubscription } from './configSubscription';
+import { waitForModelLimits } from './preflight';
 
 const redis = createRedisClient();
 const subRedis = createRedisClient();
@@ -42,7 +43,7 @@ const returnTokens = createReturnTokens(redis, MINUTE_TTL);
 const consumeModelLimits = createConsumeModelLimits(redis, MINUTE_TTL);
 const markInProgress = createMarkInProgress(redis);
 const consumeLimitsIfNeeded = createConsumeLimitsIfNeeded({ redis, consumeModelLimits });
-const executeModel = createExecuteModel(modelProvider);
+const executeModel = createExecuteModel(modelProvider, redis);
 const finalizeSuccess = createFinalizeSuccess(redis);
 const handleJob = createHandleJob({
   redis,
@@ -73,9 +74,12 @@ const registerQueueEvents = createQueueEventsRegistrar({
 });
 
 const start = async () => {
-  workers = await concurrencyManager.initWorkers();
+  // Register events before workers to avoid missing fast-fail jobs.
   registerQueueEvents(queueEvents.lite, 'lite');
   registerQueueEvents(queueEvents.hard, 'hard');
+  // Wait for model limits to be loaded before starting workers
+  await waitForModelLimits(redis);
+  workers = await concurrencyManager.initWorkers();
   await concurrencyManager.refreshConcurrency();
   await setupConfigSubscription();
 };
