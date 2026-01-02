@@ -5,7 +5,7 @@ import { env } from '../src/config/env';
 type AdminUser = {
   id: string;
   email?: string | null;
-  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
 };
 
 const USAGE = 'Usage: npm run admin:make -- --email "user@example.com"';
@@ -53,7 +53,7 @@ const findUserByEmailViaDb = async (targetEmail: string): Promise<AdminUser | nu
 
   try {
     const { rows } = await client.query<AdminUser>(
-      `SELECT id, email, raw_user_meta_data AS user_metadata
+      `SELECT id, email, raw_app_meta_data AS app_metadata
          FROM auth.users
         WHERE lower(email) = lower($1)
         LIMIT 1`,
@@ -94,21 +94,14 @@ const main = async () => {
     process.exit(1);
   }
 
-  const currentMetadata = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const currentMetadata = (user.app_metadata ?? {}) as Record<string, unknown>;
   const { error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
-    user_metadata: { ...currentMetadata, role: 'admin' },
+    app_metadata: { ...currentMetadata, role: 'admin' },
   });
 
   if (updateError) throw updateError;
 
-  const { error: seedError } = await supabase.rpc('seed_user_limits', {
-    _user_id: user.id,
-    _role: 'admin',
-  });
-
-  if (seedError) throw seedError;
-
-  console.log(`✅ User promoted to admin and limits seeded: ${user.id}`);
+  console.log(`✅ User promoted to admin: ${user.id}`);
 };
 
 main().catch((error) => {
