@@ -4,6 +4,7 @@ import { env } from '../src/config/env';
 type AdminUser = {
   id: string;
   email?: string | null;
+  app_metadata?: Record<string, unknown> | null;
 };
 
 const USAGE =
@@ -50,7 +51,7 @@ const main = async () => {
     email,
     password,
     email_confirm: true,
-    user_metadata: { role: 'admin' },
+    app_metadata: { role: 'admin' },
   });
 
   if (error) {
