@@ -119,7 +119,7 @@ export class SchemaService {
     const properties: Record<string, Schema> = {
       analysisTimestamp: {
         type: Type.STRING,
-        description: 'Current ISO date and time',
+        description: 'Current UTC timestamp',
       },
       overallAnalysis: this.buildOverallAnalysis(),
       quantitativeMetrics: this.buildQuantitativeMetrics(),
