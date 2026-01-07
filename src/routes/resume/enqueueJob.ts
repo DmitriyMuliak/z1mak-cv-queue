@@ -3,6 +3,7 @@ import { redisKeys } from '../../redis/keys';
 import type { RedisWithScripts } from '../../redis/client';
 import type { ModeType } from '../../types/mode';
 import type { RunAiJobBody } from './schema';
+import { JOB_KEY_TTL_SECONDS } from '../../constants/jobKeys';
 
 type EnqueueArgs = {
   queue: Queue;
@@ -28,6 +29,7 @@ export const enqueueJob = async ({
   createdAtMs,
 }: EnqueueArgs) => {
   try {
+    const metaKey = redisKeys.jobMeta(jobId);
     await Promise.all([
       queue.add(
         'ai-job',
@@ -42,15 +44,19 @@ export const enqueueJob = async ({
         },
         { jobId }
       ),
-      redis.hset(redisKeys.jobMeta(jobId), {
-        user_id: body.userId,
-        requested_model: requestedModel,
-        processed_model: selectedModel,
-        created_at: new Date(createdAtMs).toISOString(),
-        status: 'queued',
-        attempts: 0,
-        mode_type: modeType,
-      }),
+      redis
+        .multi()
+        .hset(metaKey, {
+          user_id: body.userId,
+          requested_model: requestedModel,
+          processed_model: selectedModel,
+          created_at: new Date(createdAtMs).toISOString(),
+          status: 'queued',
+          attempts: 0,
+          mode_type: modeType,
+        })
+        .expire(metaKey, JOB_KEY_TTL_SECONDS)
+        .exec(),
     ]);
   } catch (err) {
     await redis.decr(waitingKey);

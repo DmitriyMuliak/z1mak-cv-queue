@@ -85,7 +85,11 @@ describe('queueEvents failed handler', () => {
   });
 
   it('returns tokens and marks limit errors with limit code on final attempt', async () => {
-    queue.getJob.mockResolvedValue({ attemptsMade: 2, opts: { attempts: 2 } });
+    queue.getJob.mockResolvedValue({
+      attemptsMade: 2,
+      opts: { attempts: 2 },
+      getState: vi.fn().mockResolvedValue('failed'),
+    });
     redis.hset(redisKeys.jobMeta('j1'), {
       user_id: 'u1',
       processed_model: 'm1',
@@ -114,7 +118,11 @@ describe('queueEvents failed handler', () => {
   });
 
   it('skips work on non-final attempts', async () => {
-    queue.getJob.mockResolvedValue({ attemptsMade: 0, opts: { attempts: 2 } });
+    queue.getJob.mockResolvedValue({
+      attemptsMade: 0,
+      opts: { attempts: 2 },
+      getState: vi.fn().mockResolvedValue('waiting'),
+    });
 
     const register = createQueueEventsRegistrar({
       redis,

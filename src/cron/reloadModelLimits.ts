@@ -23,10 +23,7 @@ export const createReloadModelLimits = ({ redis, db }: CreateReloadDeps) => {
     const pipeline = redis.pipeline();
     pipeline.del(redisKeys.modelIds());
     if (res.rows.length > 0) {
-      pipeline.sadd(
-        redisKeys.modelIds(),
-        ...res.rows.map((row) => row.id)
-      );
+      pipeline.sadd(redisKeys.modelIds(), ...res.rows.map((row) => row.id));
     }
 
     for (const row of res.rows) {

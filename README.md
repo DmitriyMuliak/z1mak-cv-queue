@@ -84,7 +84,7 @@ flowchart LR
 
 ### **3) Cron**
 
-- SCAN `job:*:result` $\rightarrow$ batch upsert to DB, then **set 5-minute TTL** on `job:{id}:{meta|result}` (keeps hot data in Redis for clients that poll right after completion; DB remains source of truth).
+- SCAN `job:*:result` $\rightarrow$ batch upsert to DB. Job meta/result are created with a 24h TTL; after sync we reduce TTL to 5 minutes to keep hot data for clients while DB is the source of truth. Meta-only jobs older than ~35 minutes are persisted as `failed/missing_result` to avoid stuck `in_progress`.
 - Cleanup orphan locks
 - `expireStaleJobs` (long waiting/delayed $\rightarrow$ expired, release counters; active jobs are handled by BullMQ stalled checks)
 
@@ -139,6 +139,13 @@ job:{id}:meta
   user_id
   model
   created_at
+  updated_at
+  attempts
+  mode_type
+  requested_model
+  processed_model
+  status
+  TTL: ~24h at creation, then 5m after DB sync
 ```
 
 ### Job Result
@@ -150,6 +157,8 @@ job:{id}:result
   finished_at
   data
   used_model
+  synced_at (after DB sync)
+  TTL: ~24h at creation, then 5m after DB sync
 ```
 
 ---
@@ -233,10 +242,11 @@ Checks:
 
 # ⚙️ 6. Worker Logic (High Level)
 
-- Consume model RPM/RPD (Lua `consumeExecutionLimits`)
-- Retryable errors (500/503/504, etc.) $\rightarrow$ BullMQ retry/delay (`attempts=2`)
-- Non-retryable errors (400/403/404/429/500 context-too-long) $\rightarrow$ `UnrecoverableError` $\rightarrow$ failed, token refund, lock release
-- Release waiting counter / `active_jobs`
+- Consume model RPM/RPD (Lua `consumeExecutionLimits`).
+- Resolve provider model name from Redis `model:{id}:limits.api_name` (DB is source of truth; worker waits for preload).
+- Retryable errors (500/503/504, etc.) $\rightarrow$ BullMQ retry/delay (`attempts=2`).
+- Non-retryable errors (400/403/404/429/500 context-too-long) $\rightarrow$ `UnrecoverableError` $\rightarrow$ failed, token refund, lock release.
+- Queue events log completed/failed with jobId/state; even if BullMQ job is missing, meta/result are marked failed with TTL to avoid stuck jobs.
 
 ---
 
@@ -245,8 +255,8 @@ Checks:
 ## **DB Sync Cron (every 30s)**
 
 1.  SCAN `job:*:result`
-2.  Batch write to DB
-3.  DEL processed Redis keys
+2.  Batch write to DB (meta-only older than ~35m are persisted as `failed/missing_result`)
+3.  Mark synced and shorten TTL to ~5m (initial TTL is 24h on write)
 
 ## **Model Limit Refresh (every X min)**
 
