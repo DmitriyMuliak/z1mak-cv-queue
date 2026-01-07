@@ -70,6 +70,8 @@ export const getCachedUserLimits = async (
     };
   }
 
+  // Can add web-hook from Supabase (auth user created)
+  // Can add Supabase Realtime/PG Notify INSERT on user_limits
   try {
     const result = await db.query<UserLimitRow>(
       `

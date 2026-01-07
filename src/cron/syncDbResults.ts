@@ -2,6 +2,7 @@ import type { RedisWithScripts } from '../redis/client';
 import { redisKeys } from '../redis/keys';
 import { safeJsonParse } from './utils/safeJsonParse';
 import { scanKeys } from './utils/scanKeys';
+import { MISSING_RESULT_GRACE_MS } from '../constants/jobKeys';
 
 const SYNCED_DATA_TTL_SECONDS = 300; // keep hot results in Redis for 5 minutes post-sync
 
@@ -16,6 +17,7 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
     let processed = 0;
     const keys = await scanKeys(redis, 'job:*:result');
     if (keys.length === 0) return;
+    const nowMs = Date.now();
 
     // Use withClient to avoid reopening connections per chunk
     await db.withClient(async (client) => {
@@ -53,10 +55,35 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
           const resultEmpty = !result || Object.keys(result).length === 0;
 
           if (metaEmpty || resultEmpty) {
+            const metaKey = redisKeys.jobMeta(jobId);
+            // If we only have meta (no result) and it's stale, treat as failed and persist to DB
+            if (!metaEmpty && resultEmpty) {
+              const updatedAt = Date.parse(meta.updated_at || meta.created_at || '');
+              const ageMs = Number.isFinite(updatedAt) ? nowMs - updatedAt : Number.POSITIVE_INFINITY;
+              if (ageMs >= MISSING_RESULT_GRACE_MS) {
+                rows.push({
+                  jobId,
+                  user_id: meta.user_id || null,
+                  resume_id: meta.resume_id || null,
+                  requested_model: meta.requested_model || null,
+                  processed_model: meta.processed_model || null,
+                  status: meta.status || 'failed',
+                  result: null,
+                  error: 'missing_result',
+                  error_code: 'provider_error',
+                  created_at: meta.created_at || new Date().toISOString(),
+                  finished_at: meta.updated_at || null,
+                  expired_at: null,
+                });
+                keysToExpire.push(resultKey, metaKey);
+                continue;
+              }
+            }
+
             console.warn(
               `[Cron] syncDbResults skipping job ${jobId} — metaEmpty=${metaEmpty}, resultEmpty=${resultEmpty}`
             );
-            keysToExpire.push(resultKey, redisKeys.jobMeta(jobId));
+            keysToExpire.push(resultKey, metaKey);
             continue;
           }
 

@@ -8,7 +8,7 @@ This service is a separate Docker module, consisting of:
 | **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                              |
 | **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                             |
 | **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                        |
-| **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; keeps Redis hot copies with 5-minute TTL         |
+| **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; meta/result keys have 24h TTL, shortened to 5 minutes after sync; meta-only older than grace are persisted as failed |
 | **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                 |
 
 The service guarantees:
@@ -58,7 +58,7 @@ flowchart TD
 | **Fallback**                      | Models automatically shift down in priority **at the API layer** before queuing                      |
 | **Retry**                         | AI retryable $\rightarrow$ BullMQ delay; non-retryable/limit $\rightarrow$ immediate fail            |
 | **Token Return**                  | Model tokens are refunded upon final failure/processing of QueueEvents                               |
-| **DB Persistence**                | No job is lost                                                                                       |
+| **DB Persistence**                | No job is lost; meta-only jobs older than grace are persisted as failed                              |
 | **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                              |
 | **Dynamic Worker Concurrency**    | Worker concurrency is read from Redis, updated via Pub/Sub + admin endpoint                          |
 | **Stalled Recovery**              | BullMQ stalled detection configured (60s lock/stalled interval, max stalled count 1) for dead workers|
@@ -182,6 +182,7 @@ job:{id}:meta
   requested_model
   processed_model
   status
+  TTL: ~24h at creation, shortened to ~5m after DB sync
 ```
 
 ## 7.7 Job Result (HASH)
@@ -194,6 +195,8 @@ job:{id}:result
   finished_at
   data (JSON string)
   used_model
+  synced_at (after DB sync)
+  TTL: ~24h at creation, shortened to ~5m after DB sync
 ```
 
 ---

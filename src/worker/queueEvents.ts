@@ -2,6 +2,7 @@ import { QueueEvents, Queue } from 'bullmq';
 import { redisKeys } from '../redis/keys';
 import type { RedisWithScripts } from '../redis/client';
 import type { ModeType } from './concurrencyManager';
+import { JOB_KEY_TTL_SECONDS } from '../constants/jobKeys';
 
 type QueueEventsDeps = {
   redis: RedisWithScripts;
@@ -15,16 +16,32 @@ export const createQueueEventsRegistrar = ({
   returnTokens,
 }: QueueEventsDeps) => {
   return (queueEvent: QueueEvents, queueType: ModeType) => {
+    queueEvent.on('completed', async ({ jobId }) => {
+      const queue = queues[queueType];
+      const job = await queue.getJob(jobId);
+      const state = job ? await job.getState() : 'unknown';
+      const attemptsMade = job?.attemptsMade ?? 0;
+      console.info(
+        `[QueueEvents:${queueType}] completed job ${jobId} state=${state} attempts=${attemptsMade}`
+      );
+    });
+
     queueEvent.on('failed', async ({ jobId, failedReason }) => {
       const queue = queues[queueType];
       const job = await queue.getJob(jobId);
+      const state = job ? await job.getState() : 'missing';
       if (!job) {
-        console.warn(`[Worker] failed event but job not found: ${jobId}`);
-        return;
+        console.warn(
+          `[QueueEvents:${queueType}] failed event but job not found: ${jobId}`
+        );
       }
       const attemptsMade = job?.attemptsMade ?? 0;
       const maxAttempts = job?.opts.attempts ?? 1;
       const isFinalAttempt = job ? attemptsMade >= maxAttempts : true;
+
+      console.warn(
+        `[QueueEvents:${queueType}] failed job ${jobId} state=${state} attempts=${attemptsMade}/${maxAttempts} reason=${failedReason}`
+      );
 
       if (!isFinalAttempt) {
         return;
@@ -63,6 +80,8 @@ export const createQueueEventsRegistrar = ({
         status: 'failed',
         updated_at: failedAt,
       });
+      pipe.expire(redisKeys.jobResult(jobId), JOB_KEY_TTL_SECONDS);
+      pipe.expire(redisKeys.jobMeta(jobId), JOB_KEY_TTL_SECONDS);
       if (userId) {
         pipe.zrem(redisKeys.userActiveJobs(userId), jobId);
       }
