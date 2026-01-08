@@ -14,12 +14,17 @@ interface UserLimitRow {
 }
 
 export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
+  const USER_LIMITS_TTL_SECONDS = 60 * 60 * 24 * 2; // 1h * 24 * 2 (2 days cache)
   let rows: UserLimitRow[] = [];
   try {
     const dbResult = await db.query<UserLimitRow>(
-      `SELECT 
-        user_id, role, hard_rpd, lite_rpd, max_concurrency, unlimited
-           FROM user_limits`
+      `
+      SELECT ul.user_id, ul.role, ul.hard_rpd, ul.lite_rpd, ul.max_concurrency, ul.unlimited
+      FROM user_limits ul
+      JOIN auth.users u ON u.id = ul.user_id
+      ORDER BY u.created_at DESC
+      LIMIT 1000
+      `
     );
     rows = dbResult.rows;
   } catch (error) {
@@ -44,6 +49,7 @@ export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
       max_concurrency: row.max_concurrency ?? '',
       unlimited: String(row.unlimited),
     });
+    pipeline.expire(key, USER_LIMITS_TTL_SECONDS);
   }
 
   try {
