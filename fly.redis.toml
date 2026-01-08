@@ -1,0 +1,31 @@
+# fly.redis.toml
+app = "ai-job-processor-redis"
+primary_region = "arn"
+
+[build]
+  image = "redis:7"
+
+[vm]
+  cpus = 1
+  cpu_kind = "shared"
+  memory_mb = 256
+
+[env]
+  # Базові налаштування, щоб не залежати від config rewrite
+  REDIS_APPENDONLY = "no"
+  # 3600 1 → зберегти, якщо ≥1 зміна за годину
+  # 300 100 → якщо ≥100 змін за 5 хв
+  # 60 10000 → якщо ≥10000 змін за 1 хв.
+  REDIS_SAVE = "3600 1 300 100 60 10000"
+  REDIS_MAXMEMORY = "100mb"
+  REDIS_MAXMEMORY_POLICY = "volatile-lru"
+
+# fly volumes create redis_data --region arn --size 1 --app ai-job-processor-redis.
+[mounts]
+  source = "redis_data"
+  destination = "/data"
+
+[services]
+  [[services.ports]]
+    port = 6379
+    handlers = []  # "tls" або пусто, якщо внутрішній доступ

@@ -33,7 +33,10 @@ const missingApiNamesForIds = async (
 };
 
 export const waitForModelLimits = async (redis: RedisWithScripts) => {
-  const timeoutMs = numberFromEnv(process.env.MODEL_PREFLIGHT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
+  const timeoutMs = numberFromEnv(
+    process.env.MODEL_PREFLIGHT_TIMEOUT_MS,
+    DEFAULT_TIMEOUT_MS
+  );
   const intervalMs = numberFromEnv(
     process.env.MODEL_PREFLIGHT_INTERVAL_MS,
     DEFAULT_INTERVAL_MS
@@ -51,7 +54,10 @@ export const waitForModelLimits = async (redis: RedisWithScripts) => {
     }
 
     const missing = await missingApiNamesForIds(redis, modelIds);
-    if (missing.length === 0) return;
+    if (missing.length === 0) {
+      console.info('[Worker] Completed load model limits into Redis.');
+      return;
+    }
     console.warn(
       `[Worker] Missing api_name for models: ${missing.join(', ')}. Retrying...`
     );
