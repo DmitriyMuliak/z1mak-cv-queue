@@ -6,6 +6,10 @@ import { finalizeFailure } from '../../../src/worker/finalizeFailure';
 import { redisKeys } from '../../../src/redis/keys';
 import { ConsumeCode } from '../../../src/types/queueCodes';
 import { FakeRedis } from '../../mock/Redis';
+import {
+  JOB_KEY_TTL_SECONDS,
+  MISSING_RESULT_GRACE_MS,
+} from '../../../src/constants/jobKeys';
 
 describe('consumeLimitsIfNeeded', () => {
   const consumeModelLimits = vi.fn();
@@ -74,6 +78,7 @@ describe('queueEvents failed handler', () => {
     returnTokens = vi.fn();
     redis = new FakeRedis() as any;
     redis.reset();
+    redis.decrAndClampToZero = vi.fn();
     queue = { getJob: vi.fn() };
     queues = { lite: queue as any, hard: queue as any };
     handlerPromise = undefined;
@@ -115,6 +120,8 @@ describe('queueEvents failed handler', () => {
     expect(redis.decrAndClampToZero).toHaveBeenCalledWith([
       redisKeys.queueWaitingModel('m1'),
     ]);
+    expect(redis.ttl(redisKeys.jobMeta('j1'))).toBe(JOB_KEY_TTL_SECONDS);
+    expect(redis.ttl(redisKeys.jobResult('j1'))).toBe(JOB_KEY_TTL_SECONDS);
   });
 
   it('skips work on non-final attempts', async () => {
@@ -135,6 +142,72 @@ describe('queueEvents failed handler', () => {
 
     expect(returnTokens).not.toHaveBeenCalled();
     expect(redis.hashes.size).toBe(0);
+  });
+
+  it('marks failed when state is failed even if attempts remain', async () => {
+    queue.getJob.mockResolvedValue({
+      attemptsMade: 0,
+      opts: { attempts: 2 },
+      discarded: false,
+      getState: vi.fn().mockResolvedValue('failed'),
+    });
+    redis.hset(redisKeys.jobMeta('j1'), {
+      user_id: 'u1',
+      processed_model: 'm1',
+      tokens_consumed: 'true',
+      provider_completed: 'false',
+    });
+
+    const register = createQueueEventsRegistrar({
+      redis,
+      queues,
+      returnTokens,
+    });
+
+    await register(queueEventMock, 'lite');
+    if (handlerPromise) await handlerPromise;
+
+    expect(returnTokens).toHaveBeenCalledWith('m1');
+    expect(redis.hgetall(redisKeys.jobResult('j1'))).toMatchObject({
+      status: 'failed',
+      error: 'USER_RPD_EXCEEDED',
+      error_code: 'limit',
+    });
+    expect(redis.ttl(redisKeys.jobMeta('j1'))).toBe(JOB_KEY_TTL_SECONDS);
+    expect(redis.ttl(redisKeys.jobResult('j1'))).toBe(JOB_KEY_TTL_SECONDS);
+    expect(redis.decrAndClampToZero).toHaveBeenCalledWith([
+      redisKeys.queueWaitingModel('m1'),
+    ]);
+  });
+
+  it('marks meta-only as failed when grace exceeded', async () => {
+    const now = Date.now();
+    queue.getJob.mockResolvedValue(null);
+    redis.hset(redisKeys.jobMeta('j1'), {
+      user_id: 'u1',
+      requested_model: 'm1',
+      processed_model: 'm1',
+      status: 'in_progress',
+      created_at: new Date(now - MISSING_RESULT_GRACE_MS - 1).toISOString(),
+      updated_at: new Date(now - MISSING_RESULT_GRACE_MS - 1).toISOString(),
+    });
+
+    const register = createQueueEventsRegistrar({
+      redis,
+      queues,
+      returnTokens,
+    });
+
+    await register(queueEventMock, 'lite');
+    if (handlerPromise) await handlerPromise;
+
+    expect(redis.hgetall(redisKeys.jobResult('j1'))).toMatchObject({
+      status: 'failed',
+      error: 'USER_RPD_EXCEEDED',
+      error_code: 'limit',
+    });
+    expect(redis.ttl(redisKeys.jobMeta('j1'))).toBe(JOB_KEY_TTL_SECONDS);
+    expect(redis.ttl(redisKeys.jobResult('j1'))).toBe(JOB_KEY_TTL_SECONDS);
   });
 });
 
