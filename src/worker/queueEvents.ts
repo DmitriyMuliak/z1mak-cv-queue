@@ -37,7 +37,8 @@ export const createQueueEventsRegistrar = ({
       }
       const attemptsMade = job?.attemptsMade ?? 0;
       const maxAttempts = job?.opts.attempts ?? 1;
-      const isFinalAttempt = job ? attemptsMade >= maxAttempts : true;
+      //  BullMq already handle this condition attemptsMade >= maxAttempts;
+      const isFinalAttempt = !job || state === 'failed';
 
       console.warn(
         `[QueueEvents:${queueType}] failed job ${jobId} state=${state} attempts=${attemptsMade}/${maxAttempts} reason=${failedReason}`
