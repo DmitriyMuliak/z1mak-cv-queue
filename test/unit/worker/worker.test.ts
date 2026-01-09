@@ -114,7 +114,7 @@ describe('queueEvents failed handler', () => {
 
     expect(returnTokens).toHaveBeenCalledWith('m1');
     const result = redis.hgetall(redisKeys.jobResult('j1'));
-    expect(result.error_code).toBe('limit');
+    expect(result.error_code).toBe('USER_RPD_LIMIT');
     expect(result.status).toBe('failed');
     expect(redis.zsets.get(redisKeys.userActiveJobs('u1'))?.has('j1')).toBeFalsy();
     expect(redis.decrAndClampToZero).toHaveBeenCalledWith([
@@ -171,7 +171,7 @@ describe('queueEvents failed handler', () => {
     expect(redis.hgetall(redisKeys.jobResult('j1'))).toMatchObject({
       status: 'failed',
       error: 'USER_RPD_EXCEEDED',
-      error_code: 'limit',
+      error_code: 'USER_RPD_LIMIT',
     });
     expect(redis.ttl(redisKeys.jobMeta('j1'))).toBe(JOB_KEY_TTL_SECONDS);
     expect(redis.ttl(redisKeys.jobResult('j1'))).toBe(JOB_KEY_TTL_SECONDS);
@@ -204,7 +204,7 @@ describe('queueEvents failed handler', () => {
     expect(redis.hgetall(redisKeys.jobResult('j1'))).toMatchObject({
       status: 'failed',
       error: 'USER_RPD_EXCEEDED',
-      error_code: 'limit',
+      error_code: 'USER_RPD_LIMIT',
     });
     expect(redis.ttl(redisKeys.jobMeta('j1'))).toBe(JOB_KEY_TTL_SECONDS);
     expect(redis.ttl(redisKeys.jobResult('j1'))).toBe(JOB_KEY_TTL_SECONDS);

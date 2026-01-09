@@ -15,9 +15,11 @@ export const createReloadModelLimits = ({ redis, db }: CreateReloadDeps) => {
       api_name: string;
       rpm: number;
       rpd: number;
+      type: 'hard' | 'lite';
+      fallback_priority: number;
       updated_at?: Date;
     }>(
-      'SELECT id, api_name, rpm, rpd, updated_at FROM ai_models ORDER BY fallback_priority ASC'
+      'SELECT id, api_name, rpm, rpd, type, fallback_priority, updated_at FROM ai_models ORDER BY fallback_priority ASC'
     );
 
     const pipeline = redis.pipeline();
@@ -31,6 +33,8 @@ export const createReloadModelLimits = ({ redis, db }: CreateReloadDeps) => {
         api_name: row.api_name,
         rpm: row.rpm,
         rpd: row.rpd,
+        type: row.type,
+        fallback_priority: row.fallback_priority,
         updated_at: row.updated_at?.toISOString?.() ?? new Date().toISOString(),
       });
     }

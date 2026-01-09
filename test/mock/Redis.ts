@@ -5,6 +5,7 @@ export class FakeRedis {
   strings = new Map<string, string>();
   hashes = new Map<string, Record<string, string>>();
   zsets = new Map<string, Map<string, number>>();
+  sets = new Map<string, Set<string>>();
   expirations = new Map<string, number>();
 
   scanCalls: Array<{ pattern: string; count: number }> = [];
@@ -14,6 +15,7 @@ export class FakeRedis {
     this.strings.clear();
     this.hashes.clear();
     this.zsets.clear();
+    this.sets.clear();
     this.expirations.clear();
     this.scanCalls = [];
     this.delCalls = [];
@@ -53,6 +55,7 @@ export class FakeRedis {
       this.strings.delete(key);
       this.hashes.delete(key);
       this.zsets.delete(key);
+      this.sets.delete(key);
     }
   }
 
@@ -170,6 +173,10 @@ export class FakeRedis {
         commands.push(() => this.del(...keys));
         return pipe;
       },
+      sadd: (key: string, ...members: string[]) => {
+        commands.push(() => this.sadd(key, ...members));
+        return pipe;
+      },
       zremrangebyscore: (key: string, min: string | number, max: string | number) => {
         commands.push(() => this.zremrangebyscore(key, min, max));
         return pipe;
@@ -185,6 +192,23 @@ export class FakeRedis {
       },
     };
     return pipe;
+  }
+
+  sadd(key: string, ...members: string[]) {
+    const set = this.sets.get(key) ?? new Set<string>();
+    let added = 0;
+    for (const member of members) {
+      if (!set.has(member)) {
+        added++;
+      }
+      set.add(member);
+    }
+    this.sets.set(key, set);
+    return added;
+  }
+
+  smembers(key: string) {
+    return Array.from(this.sets.get(key) ?? []);
   }
 
   returnTokensAtomic(

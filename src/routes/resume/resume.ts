@@ -42,7 +42,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       const dayTtl = getSecondsUntilMidnightPT(); // TTL until 00:00 PT
       const modeType: ModeType = getModeType(body.payload.mode);
 
-      const chainFromMode = resolveModelChain(body.payload.mode);
+      const chainFromMode = await resolveModelChain(fastify.redis, body.payload.mode);
       const requestedModel = chainFromMode.requestedModel;
       const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
 

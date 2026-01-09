@@ -3,7 +3,7 @@ import { AcquireCode } from '../../types/queueCodes';
 import type { RedisWithScripts } from '../../redis/client';
 import type { UserLimits } from '../../services/limitsCache';
 import type { ModeType } from '../../types/mode';
-import { aiModelIds } from '../../types/ai-models';
+import type { aiModelIds } from '../../types/ai-models';
 
 type SelectionError = 'CONCURRENCY_LIMIT' | 'USER_RPD_LIMIT' | 'MODEL_LIMIT';
 
