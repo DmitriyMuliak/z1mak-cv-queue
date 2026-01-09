@@ -1,5 +1,5 @@
 // curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=API_KEY"
-curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyDOE2prRy3ilC0OgYentz58D4Vu5F2yt8U"
+
 export const _models = {
   models: [
     {
