@@ -1,13 +1,28 @@
 import { QueueEvents, Queue } from 'bullmq';
 import { redisKeys } from '../redis/keys';
+import { JOB_KEY_TTL_SECONDS } from '../constants/jobKeys';
 import type { RedisWithScripts } from '../redis/client';
 import type { ModeType } from './concurrencyManager';
-import { JOB_KEY_TTL_SECONDS } from '../constants/jobKeys';
+import type { GeminiErrorMessage } from '../ai/providers/gemini/errorMapping';
 
 type QueueEventsDeps = {
   redis: RedisWithScripts;
   queues: Record<ModeType, Queue>;
   returnTokens: (model: string) => Promise<void>;
+};
+
+type ExpectedFailedReason =
+  | 'MODEL_RPD_EXCEEDED' // consumeLimitsIfNeeded.ts (lines 44-49).
+  | 'USER_RPD_EXCEEDED' // consumeLimitsIfNeeded.ts (lines 44-49).
+  | `MODEL_API_NAME_MISSING:${string}` // executeModel.ts (lines 13-16).
+  | 'PROVIDER_FATAL_ERROR' // finalizeFailure.ts (lines 3-8) or not retryable err with GeminiErrorMessage
+  | GeminiErrorMessage; // errorMapping.ts (lines 5-97)).
+
+export type FailedReason = ExpectedFailedReason | string;
+
+const limitReasons: Record<string, string> = {
+  MODEL_RPD_EXCEEDED: 'MODEL_LIMIT',
+  USER_RPD_EXCEEDED: 'USER_RPD_LIMIT',
 };
 
 export const createQueueEventsRegistrar = ({
@@ -65,9 +80,8 @@ export const createQueueEventsRegistrar = ({
         await returnTokens(model);
       }
 
-      const reason = failedReason || 'provider_error';
-      const limitReasons = new Set(['MODEL_RPD_EXCEEDED', 'USER_RPD_EXCEEDED']);
-      const errorCode = limitReasons.has(reason) ? 'limit' : 'provider_error';
+      const reason = failedReason || 'PROVIDER_ERROR';
+      const errorCode = limitReasons[reason] ?? 'PROVIDER_ERROR';
       const failedAt = new Date().toISOString();
 
       const pipe = redis.pipeline();

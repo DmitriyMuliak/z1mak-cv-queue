@@ -15,7 +15,7 @@ export const GEMINI_ERROR_MAP = {
 
 export type GeminiErrorCode = keyof typeof GEMINI_ERROR_MAP;
 
-export const GEMINI_ERROR_MESSAGES: Record<GeminiErrorCode, string> = {
+export const GEMINI_ERROR_MESSAGES = {
   INVALID_ARGUMENT: 'Gemini invalid request',
   FAILED_PRECONDITION: 'Gemini request failed precondition',
   PERMISSION_DENIED: 'Gemini permission denied',
@@ -24,7 +24,9 @@ export const GEMINI_ERROR_MESSAGES: Record<GeminiErrorCode, string> = {
   INTERNAL: 'Gemini internal error',
   UNAVAILABLE: 'Gemini service unavailable',
   DEADLINE_EXCEEDED: 'Gemini deadline exceeded',
-};
+} as const satisfies Record<GeminiErrorCode, string>;
+
+export type GeminiErrorMessage = (typeof GEMINI_ERROR_MESSAGES)[GeminiErrorCode];
 
 export const GEMINI_NOT_RETRIABLE_BY_CODE = {
   [GEMINI_ERROR_MAP.RESOURCE_EXHAUSTED.code]: true,

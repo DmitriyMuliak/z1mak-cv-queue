@@ -39,7 +39,7 @@ export class ModelProviderService {
       return { text, usedModel: payload.model };
     } catch (error) {
       const retryable = this.modelProvider.isRetryableError(error);
-      (error as any).retryable = retryable;
+      (error as Record<string, unknown>).retryable = retryable;
       throw error;
     }
   }

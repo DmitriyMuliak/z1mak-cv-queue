@@ -22,6 +22,7 @@ import {
 import { parseMaybeJson } from '../../utils/parseJson';
 import { ModeType } from '../../types/mode';
 import { numberFromQuery } from '../../utils/queryUtils';
+import { RedisJobStatus } from '../../redis/keys.types';
 
 const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
 
@@ -118,7 +119,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
           status: result.status,
           data: parseMaybeJson(result.data),
           error: result.error,
-          finished_at: result.finished_at,
+          finishedAt: result.finished_at,
         };
       }
 
@@ -128,7 +129,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
           status: meta.status ?? 'queued',
           data: null,
           error: null,
-          finished_at: null,
+          finishedAt: null,
         };
       }
 
@@ -176,9 +177,11 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
-      const dbStatus = await db.query('SELECT status FROM cv_analyzes WHERE id = $1', [
-        jobId,
-      ]);
+      const dbStatus = await db.query<{ status: RedisJobStatus }>(
+        'SELECT status FROM cv_analyzes WHERE id = $1',
+        [jobId]
+      );
+
       if (dbStatus.rows.length > 0) {
         return { status: dbStatus.rows[0].status as string };
       }
@@ -202,9 +205,10 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         id: string;
         finished_at: Date | null;
         created_at: Date;
+        status: RedisJobStatus;
       }>(
         `
-        SELECT id, finished_at, created_at
+        SELECT id, finished_at, created_at, status
         FROM cv_analyzes
         WHERE user_id = $1
         ORDER BY COALESCE(finished_at, created_at) DESC
@@ -217,6 +221,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         id: row.id,
         finishedAt: row.finished_at,
         createdAt: row.created_at,
+        status: row.status,
       }));
     }
   );
