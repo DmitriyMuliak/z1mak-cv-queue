@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Client } from 'pg';
 import { env } from '../src/config/env';
+import type { Database } from '../src/types/database/database-gen';
 
 type AdminUser = {
   id: string;
@@ -41,7 +42,7 @@ if (!supabaseUrl || !serviceRoleKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+const supabase = createClient<Database>(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 

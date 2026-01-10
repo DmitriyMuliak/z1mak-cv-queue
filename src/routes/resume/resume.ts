@@ -22,9 +22,8 @@ import {
 import { parseMaybeJson } from '../../utils/parseJson';
 import { ModeType } from '../../types/mode';
 import { numberFromQuery } from '../../utils/queryUtils';
-import { RedisJobStatus } from '../../redis/keys.types';
-
-const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
+import { CONCURRENCY_TTL_SECONDS } from './consts';
+import type { CvAnalyzes } from '../../types/database/database';
 
 export default async function resumeRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RunAiJobBody }>(
@@ -83,7 +82,6 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       if (waitingCount > maxQueueLength) {
         await fastify.redis.decr(waitingKey);
         return reply.status(429).send({
-          ok: false,
           error: 'QUEUE_FULL',
           message: `Queue backlog too large for model ${selectedModel}`,
         });
@@ -134,13 +132,9 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       }
 
       // Fallback to DB (Redis TTL may have expired)
-      const dbResult = await db.query<{
-        status: string;
-        result: unknown;
-        error: string | null;
-        finished_at: Date | null;
-        created_at: Date;
-      }>(
+      const dbResult = await db.query<
+        Pick<CvAnalyzes, 'status' | 'result' | 'error' | 'created_at' | 'finished_at'>
+      >(
         'SELECT status, result, error, finished_at, created_at FROM cv_analyzes WHERE id = $1',
         [jobId]
       );
@@ -155,7 +149,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         };
       }
 
-      return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
+      return reply.status(404).send({ error: 'NOT_FOUND' });
     }
   );
 
@@ -177,7 +171,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
-      const dbStatus = await db.query<{ status: RedisJobStatus }>(
+      const dbStatus = await db.query<Pick<CvAnalyzes, 'status'>>(
         'SELECT status FROM cv_analyzes WHERE id = $1',
         [jobId]
       );
@@ -186,7 +180,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: dbStatus.rows[0].status as string };
       }
 
-      return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
+      return reply.status(404).send({ error: 'NOT_FOUND' });
     }
   );
 
@@ -201,12 +195,9 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       );
       const offset = Math.max(0, Math.floor(numberFromQuery(request.query.offset, 0)));
 
-      const result = await db.query<{
-        id: string;
-        finished_at: Date | null;
-        created_at: Date;
-        status: RedisJobStatus;
-      }>(
+      const result = await db.query<
+        Pick<CvAnalyzes, 'id' | 'status' | 'created_at' | 'finished_at'>
+      >(
         `
         SELECT id, finished_at, created_at, status
         FROM cv_analyzes
