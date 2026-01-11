@@ -23,7 +23,11 @@
     "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
     "build:copy-lua": "shx mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/",
     "supabase": "supabase",
-    "update-db-types": "supabase gen types typescript --local > ./src/types/supabase.ts",
+    "supabase:link": "supabase link --project-ref",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:pull": "supabase db pull",
+    "supabase:types:update": "supabase gen types typescript --linked > src/types/database-gen.ts",
     "admin:make": "dotenv -e .env.development -- ts-node scripts/makeAdminExisting.ts",
     "admin:create": "dotenv -e .env.development -- ts-node scripts/createAdminUser.ts"
   },

@@ -8,5 +8,5 @@ export type ResumeErrorCode =
 export type ResumeErrorResponse = {
   ok: false;
   error: ResumeErrorCode;
-  message?: string; // використовується зараз лише для QUEUE_FULL
+  message?: string; // currently used only for QUEUE_FULL
 };

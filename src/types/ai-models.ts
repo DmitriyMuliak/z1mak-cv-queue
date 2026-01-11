@@ -1,1 +1,1 @@
-export type aiModelIds = 'flash3' | 'flash' | 'flashLite';
+export type aiModelIds = string; // 'flash3' | 'flash' | 'flashLite'

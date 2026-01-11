@@ -36,6 +36,7 @@ const expireStaleJobs = createExpireStaleJobs({
 
 export const startCron = async () => {
   await runWithLock(redis, 'reloadModelLimits', MODEL_RELOAD_MS, reloadModelLimits);
+  // TODO: add subRedis.subscribe event and endpoint for models
   modelTimer = setInterval(
     () => runWithLock(redis, 'reloadModelLimits', MODEL_RELOAD_MS, reloadModelLimits),
     MODEL_RELOAD_MS

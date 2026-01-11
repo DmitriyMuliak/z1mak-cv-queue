@@ -8,6 +8,8 @@ export interface RedisModelLimitsHash {
   rpm: string; // numeric string
   rpd: string; // numeric string
   api_name?: string;
+  type?: 'hard' | 'lite';
+  fallback_priority?: string; // numeric string
   updated_at?: string;
 }
 

@@ -22,8 +22,8 @@ import {
 import { parseMaybeJson } from '../../utils/parseJson';
 import { ModeType } from '../../types/mode';
 import { numberFromQuery } from '../../utils/queryUtils';
-
-const CONCURRENCY_TTL_SECONDS = 1860; // ~31 minutes so the slot does not expire before start
+import { CONCURRENCY_TTL_SECONDS } from './consts';
+import type { CvAnalyzes } from '../../types/database/database';
 
 export default async function resumeRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RunAiJobBody }>(
@@ -41,7 +41,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       const dayTtl = getSecondsUntilMidnightPT(); // TTL until 00:00 PT
       const modeType: ModeType = getModeType(body.payload.mode);
 
-      const chainFromMode = resolveModelChain(body.payload.mode);
+      const chainFromMode = await resolveModelChain(fastify.redis, body.payload.mode);
       const requestedModel = chainFromMode.requestedModel;
       const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
 
@@ -82,7 +82,6 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       if (waitingCount > maxQueueLength) {
         await fastify.redis.decr(waitingKey);
         return reply.status(429).send({
-          ok: false,
           error: 'QUEUE_FULL',
           message: `Queue backlog too large for model ${selectedModel}`,
         });
@@ -118,7 +117,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
           status: result.status,
           data: parseMaybeJson(result.data),
           error: result.error,
-          finished_at: result.finished_at,
+          finishedAt: result.finished_at,
         };
       }
 
@@ -128,18 +127,14 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
           status: meta.status ?? 'queued',
           data: null,
           error: null,
-          finished_at: null,
+          finishedAt: null,
         };
       }
 
       // Fallback to DB (Redis TTL may have expired)
-      const dbResult = await db.query<{
-        status: string;
-        result: unknown;
-        error: string | null;
-        finished_at: Date | null;
-        created_at: Date;
-      }>(
+      const dbResult = await db.query<
+        Pick<CvAnalyzes, 'status' | 'result' | 'error' | 'created_at' | 'finished_at'>
+      >(
         'SELECT status, result, error, finished_at, created_at FROM cv_analyzes WHERE id = $1',
         [jobId]
       );
@@ -154,7 +149,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         };
       }
 
-      return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
+      return reply.status(404).send({ error: 'NOT_FOUND' });
     }
   );
 
@@ -176,14 +171,16 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
-      const dbStatus = await db.query('SELECT status FROM cv_analyzes WHERE id = $1', [
-        jobId,
-      ]);
+      const dbStatus = await db.query<Pick<CvAnalyzes, 'status'>>(
+        'SELECT status FROM cv_analyzes WHERE id = $1',
+        [jobId]
+      );
+
       if (dbStatus.rows.length > 0) {
         return { status: dbStatus.rows[0].status as string };
       }
 
-      return reply.status(404).send({ ok: false, error: 'NOT_FOUND' });
+      return reply.status(404).send({ error: 'NOT_FOUND' });
     }
   );
 
@@ -198,13 +195,11 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       );
       const offset = Math.max(0, Math.floor(numberFromQuery(request.query.offset, 0)));
 
-      const result = await db.query<{
-        id: string;
-        finished_at: Date | null;
-        created_at: Date;
-      }>(
+      const result = await db.query<
+        Pick<CvAnalyzes, 'id' | 'status' | 'created_at' | 'finished_at'>
+      >(
         `
-        SELECT id, finished_at, created_at
+        SELECT id, finished_at, created_at, status
         FROM cv_analyzes
         WHERE user_id = $1
         ORDER BY COALESCE(finished_at, created_at) DESC
@@ -217,6 +212,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         id: row.id,
         finishedAt: row.finished_at,
         createdAt: row.created_at,
+        status: row.status,
       }));
     }
   );
