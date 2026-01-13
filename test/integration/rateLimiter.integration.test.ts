@@ -87,7 +87,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     const second = await postJob(body);
     expect(second.status).toBe(429);
-    expect(second.json.error).toBe('USER_RPD_LIMIT');
+    expect(second.json.error).toBe('USER_RPD_LIMIT:lite');
   });
 
   it('allows small bursts when model rpm is 50', async () => {
@@ -200,7 +200,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     const second = await postJob(body);
     expect(second.status).toBe(429);
-    expect(second.json.error).toBe('USER_RPD_LIMIT');
+    expect(second.json.error).toBe('USER_RPD_LIMIT:lite');
   });
 
   it('throttles user max_concurrency', async () => {
@@ -246,7 +246,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     const res = await enqueueAndWait(body, redis);
     expect(res.status).toBe(429);
-    expect(res.json.error).toBe('USER_RPD_LIMIT');
+    expect(res.json.error).toBe('USER_RPD_LIMIT:lite');
   });
 
   it('accepts burst even when model RPM is low (worker will throttle)', async () => {
@@ -276,7 +276,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     expect(successes.length).toBe(5);
     expect(failures.length).toBe(15);
-    expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT')).toBe(true);
+    expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT:lite')).toBe(true);
   });
 
   it('enforces user max_concurrency on burst', async () => {
@@ -308,7 +308,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
     );
     const failures = results.filter((r) => r.status !== 200);
     expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
-    expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT')).toBe(true);
+    expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT:lite')).toBe(true);
     // QUEUE_FULL is acceptable due to backpressure (~108 for rpm=100, avg=15s)
     const successes = results.filter((r) => r.status === 200);
     expect(successes.length).toBeGreaterThan(90);

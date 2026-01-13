@@ -124,7 +124,7 @@ describe('selectAvailableModel', () => {
       concurrencyTtlSeconds: 100,
     });
 
-    expect(res).toEqual({ status: 'error', error: 'USER_RPD_LIMIT' });
+    expect(res).toEqual({ status: 'error', error: 'USER_RPD_LIMIT:lite' });
   });
 
   it('returns model limit error when no model available', async () => {

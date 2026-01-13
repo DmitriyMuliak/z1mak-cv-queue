@@ -71,9 +71,9 @@ export const stopCron = async () => {
   cleanupTimer = undefined;
   expireTimer = undefined;
 
-  await redis.quit();
   await queueLite.close();
   await queueHard.close();
+  await redis.quit();
 };
 
 // Exposed for unit tests

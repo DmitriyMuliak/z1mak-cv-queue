@@ -24,9 +24,7 @@ export interface GeminiRequest {
 export class GeminiProvider {
   private client: GoogleGenAI;
 
-  constructor(
-    apiKey = process.env.GEMINI_API_KEY ?? process.env.NEXT_PUBLIC_GEMINI_API_KEY
-  ) {
+  constructor(apiKey = process.env.GEMINI_API_KEY) {
     if (!apiKey) {
       throw new Error('Gemini API key is missing');
     }
@@ -102,7 +100,7 @@ export class GeminiProvider {
       return false;
     }
 
-    if (isContextTooLong(message) && mappedStatus === undefined) {
+    if (mappedStatus === undefined && isContextTooLong(message)) {
       return false;
     }
 

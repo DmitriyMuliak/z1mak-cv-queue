@@ -34,8 +34,8 @@ const start = async () => {
     await fastify.listen({ port: env.port, host: '0.0.0.0' });
 
     const shutdown = async () => {
-      await stopCron();
       await fastify.close();
+      await stopCron();
       process.exit(0);
     };
 
