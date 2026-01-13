@@ -2,6 +2,7 @@ import fp from 'fastify-plugin';
 import { Queue } from 'bullmq';
 import { createRedisClient, RedisWithScripts } from '../redis/client';
 import { env } from '../config/env';
+import { onShutdown } from '../lifecycle/shutdownEmitter';
 import type { FastifyInstance } from 'fastify';
 
 declare module 'fastify' {
@@ -35,9 +36,23 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.decorate('queueLite', queueLite);
   fastify.decorate('queueHard', queueHard);
 
-  fastify.addHook('onClose', async () => {
-    await queueLite.close();
-    await queueHard.close();
-    await redis.quit();
-  });
+  let closed = false;
+  const closeResources = async () => {
+    if (closed) return;
+    closed = true;
+
+    try {
+      await Promise.all([queueLite.close(), queueHard.close()]);
+    } catch (err) {
+      fastify.log.error(err, 'queue close failed');
+    }
+
+    try {
+      await redis.quit();
+    } catch (err) {
+      fastify.log.error(err, 'redis quit failed');
+    }
+  };
+
+  onShutdown(closeResources);
 });

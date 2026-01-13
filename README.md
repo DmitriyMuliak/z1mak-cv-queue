@@ -308,6 +308,7 @@ async function shutdown() {
   await worker.close();
   await queue.close();
   await redis.quit();
+  await db.end();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
