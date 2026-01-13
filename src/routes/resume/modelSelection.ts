@@ -4,8 +4,13 @@ import type { RedisWithScripts } from '../../redis/client';
 import type { UserLimits } from '../../services/limitsCache';
 import type { ModeType } from '../../types/mode';
 import type { aiModelIds } from '../../types/ai-models';
+import { userLimitError } from '../../constants/limitErrors';
+import { getUserRpdLimitErrorCode } from '../../utils/getUserRpdLimitErrorCode';
 
-type SelectionError = 'CONCURRENCY_LIMIT' | 'USER_RPD_LIMIT' | 'MODEL_LIMIT';
+type SelectionError =
+  | 'CONCURRENCY_LIMIT'
+  | `${typeof userLimitError.USER_RPD_LIMIT}:${ModeType}`
+  | 'MODEL_LIMIT';
 
 export type ModelSelectionResult =
   | {
@@ -89,7 +94,7 @@ export const selectAvailableModel = async ({
       return { status: 'error', error: 'CONCURRENCY_LIMIT' };
     }
     if (code === AcquireCode.UserRpdExceeded) {
-      return { status: 'error', error: 'USER_RPD_LIMIT' };
+      return { status: 'error', error: getUserRpdLimitErrorCode(modeType) };
     }
   }
 

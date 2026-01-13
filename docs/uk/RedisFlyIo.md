@@ -55,3 +55,11 @@ fly ssh console -C 'node -e "const Redis=require(\"ioredis\"); const r=new Redis
 ```
 
 Це покаже, чи включені AOF/RDB і куди пишуться файли (volume), та який maxmemory/policy. Volume видно як /dev/vdb змонтований у /.fly-upper-layer; якщо dir вказує туди — Redis пише на volume.
+
+### GET REDIS KEYS
+
+```
+fly ssh console -a "ai-job-processor-redis" -C "redis-cli --scan --pattern 'model:*:limits'"
+
+fly ssh console -a "ai-job-processor-redis" -C "redis-cli HGETALL model:flash3:limits"
+```

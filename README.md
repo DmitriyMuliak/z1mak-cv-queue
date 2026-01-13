@@ -303,6 +303,8 @@ model:{name}:limits
 
 ```ts
 async function shutdown() {
+  await fastify.close();
+  await stopCron();
   await worker.close();
   await queue.close();
   await redis.quit();
