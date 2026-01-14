@@ -2,7 +2,7 @@ import fp from 'fastify-plugin';
 import { Queue } from 'bullmq';
 import { createRedisClient, RedisWithScripts } from '../redis/client';
 import { env } from '../config/env';
-import { onShutdown } from '../lifecycle/shutdownEmitter';
+import { onShutdown, ShutdownPriority } from '../utils/shutdownEmitter';
 import type { FastifyInstance } from 'fastify';
 
 declare module 'fastify' {
@@ -36,16 +36,29 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.decorate('queueLite', queueLite);
   fastify.decorate('queueHard', queueHard);
 
-  let closed = false;
-  const closeResources = async () => {
-    if (closed) return;
-    closed = true;
+  let queuesClosed = false;
+  let redisClosed = false;
+
+  const closeQueues = async () => {
+    if (queuesClosed) return;
+    queuesClosed = true;
 
     try {
-      await Promise.all([queueLite.close(), queueHard.close()]);
+      await queueLite.close();
     } catch (err) {
-      fastify.log.error(err, 'queue close failed');
+      fastify.log.error(err, 'queueLite close failed');
     }
+
+    try {
+      await queueHard.close();
+    } catch (err) {
+      fastify.log.error(err, 'queueHard close failed');
+    }
+  };
+
+  const closeRedis = async () => {
+    if (redisClosed) return;
+    redisClosed = true;
 
     try {
       await redis.quit();
@@ -54,5 +67,6 @@ export default fp(async (fastify: FastifyInstance) => {
     }
   };
 
-  onShutdown(closeResources);
+  onShutdown(closeQueues, ShutdownPriority.QUEUES);
+  onShutdown(closeRedis, ShutdownPriority.REDIS);
 });

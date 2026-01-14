@@ -167,6 +167,9 @@ job:{id}:result
 
 - `combinedCheckAndAcquire`: cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, checks model RPD (without consuming); returns code OK / CONCURRENCY / USER_RPD / MODEL_RPD.
 - `consumeExecutionLimits`: atomically checks and consumes model RPM/RPD.
+- `decrAndClampToZero`: decrements a numeric key and clamps the value at 0 (used for queue counters).
+- `returnTokensAtomic`: atomically returns RPM/RPD/user RPD tokens with TTL updates; safe to call when jobs are cancelled/expired/failed.
+- `expireStaleJob`: removes old waiting/delayed jobs, decrements queue/user counters, marks job meta/result as `failed/expired`, and stamps `expired_at`.
 
 ---
 
@@ -206,6 +209,7 @@ Returns:
 - `in_progress`
 - `completed`
 - `failed`
+- `expired`
 
 ## GET `/resume/:id/result`
 
@@ -225,9 +229,13 @@ Returns:
 
 Updates worker concurrency without deployment (requires internal API key):
 
-```json
+```typescript
 { "queue": "lite" | "hard", "concurrency": 12 }
 ```
+
+## POST `/admin/update-models-limits`
+
+Update models limits from DB (requires internal API key):
 
 ## GET `/health`
 
@@ -304,9 +312,9 @@ model:{name}:limits
 ```ts
 async function shutdown() {
   await fastify.close();
+  await queueLite.close();
+  await queueHard.close();
   await stopCron();
-  await worker.close();
-  await queue.close();
   await redis.quit();
   await db.end();
   process.exit(0);

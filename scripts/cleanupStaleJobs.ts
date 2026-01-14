@@ -55,7 +55,9 @@ const main = async () => {
     return;
   }
 
-  console.log(`Found ${staleIds.length} stale jobs older than ${CUTOFF_MS / 1000 / 60} minutes`);
+  console.log(
+    `Found ${staleIds.length} stale jobs older than ${CUTOFF_MS / 1000 / 60} minutes`
+  );
 
   // Delete meta/result hashes
   const pipe = redis.pipeline();

@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import { db } from '../db/client';
-import { onShutdown } from '../lifecycle/shutdownEmitter';
+import { onShutdown, ShutdownPriority } from '../utils/shutdownEmitter';
 
 export default fp(async (fastify) => {
   fastify.decorate('db', db);
@@ -17,5 +17,5 @@ export default fp(async (fastify) => {
     }
   };
 
-  onShutdown(closeDb);
+  onShutdown(closeDb, ShutdownPriority.DATABASE);
 });

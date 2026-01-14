@@ -59,7 +59,9 @@ export const createSyncDbResults = ({ redis, db }: CreateSyncDeps) => {
             // If we only have meta (no result) and it's stale, treat as failed and persist to DB
             if (!metaEmpty && resultEmpty) {
               const updatedAt = Date.parse(meta.updated_at || meta.created_at || '');
-              const ageMs = Number.isFinite(updatedAt) ? nowMs - updatedAt : Number.POSITIVE_INFINITY;
+              const ageMs = Number.isFinite(updatedAt)
+                ? nowMs - updatedAt
+                : Number.POSITIVE_INFINITY;
               if (ageMs >= MISSING_RESULT_GRACE_MS) {
                 rows.push({
                   jobId,
