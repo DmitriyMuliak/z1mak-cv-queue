@@ -1,55 +1,5 @@
 # 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
-## Folder structure
-
-```text
-root
-├── src
-│   ├── ai              // provider implementations and selection logic
-│   ├── config          // env parsing and configuration helpers
-│   ├── constants       // shared constants (TTL, limits, etc.)
-│   ├── cron            // scheduled tasks (sync DB, cleanup, expire stale jobs)
-│   ├── db              // database client and queries
-│   ├── plugins         // Fastify plugins (redis, db, shutdown, etc.)
-│   ├── redis           // redis client, keys, Lua scripts
-│   ├── routes          // HTTP routes (resume, admin, health)
-│   ├── server.ts       // Fastify bootstrap
-│   ├── services        // domain services (user limits preload, etc.)
-│   ├── types           // shared TypeScript types
-│   ├── utils           // helper utilities
-│   └── worker          // BullMQ worker entrypoint and pipeline
-├── supabase
-│   ├── config.toml
-│   ├── helpers
-│   ├── migrations
-│   └── seed.sql
-├── test
-│   ├── integration
-│   ├── mock
-│   ├── unit
-│   └── utils
-├── scripts
-│   ├── cleanupStaleJobs.ts
-│   ├── createAdminUser.ts
-│   └── makeAdminExisting.ts
-├── docs
-│   ├── Architecture.md
-│   ├── RateLimits.md
-│   ├── TESTS.md
-│   └── Woker.md
-├── README.md
-├── Dockerfile
-├── docker-compose.develop.yml
-├── docker-compose.test.yml
-├── eslint.config.cjs
-├── fly.redis.toml
-├── fly.toml
-├── package.json
-├── tsconfig.build.json
-├── tsconfig.json
-└── vitest.config.ts
-```
-
 ## This service is the core of the AI analysis execution system.
 
 It processes jobs considering:
@@ -66,12 +16,6 @@ It processes jobs considering:
 
 > **This is NOT a Next.js API.**
 > Next.js only proxies requests to this service.
-
-## Local Supabase (Postgres)
-
-- Start local stack: `npm run supabase start` (uses the bundled Supabase CLI).
-- Postgres URL for this service: `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` (ports match `supabase/config.toml`).
-- Only Postgres is used here; Supabase auth/storage are not required.
 
 ---
 
@@ -371,4 +315,54 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+```
+
+# 📁 10. Folder structure
+
+```text
+root
+├── src
+│   ├── ai              // provider implementations and selection logic
+│   ├── config          // env parsing and configuration helpers
+│   ├── constants       // shared constants (TTL, limits, etc.)
+│   ├── cron            // scheduled tasks (sync DB, cleanup, expire stale jobs)
+│   ├── db              // database client and queries
+│   ├── plugins         // Fastify plugins (redis, db, shutdown, etc.)
+│   ├── redis           // redis client, keys, Lua scripts
+│   ├── routes          // HTTP routes (resume, admin, health)
+│   ├── server.ts       // Fastify bootstrap
+│   ├── services        // domain services (user limits preload, etc.)
+│   ├── types           // shared TypeScript types
+│   ├── utils           // helper utilities
+│   └── worker          // BullMQ worker entrypoint and pipeline
+├── supabase
+│   ├── config.toml
+│   ├── helpers
+│   ├── migrations
+│   └── seed.sql
+├── test
+│   ├── integration
+│   ├── mock
+│   ├── unit
+│   └── utils
+├── scripts
+│   ├── cleanupStaleJobs.ts
+│   ├── createAdminUser.ts
+│   └── makeAdminExisting.ts
+├── docs
+│   ├── Architecture.md
+│   ├── RateLimits.md
+│   ├── TESTS.md
+│   └── Worker.md
+├── README.md
+├── Dockerfile
+├── docker-compose.develop.yml
+├── docker-compose.test.yml
+├── eslint.config.cjs
+├── fly.redis.toml
+├── fly.toml
+├── package.json
+├── tsconfig.build.json
+├── tsconfig.json
+└── vitest.config.ts
 ```
