@@ -1,6 +1,57 @@
 # 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
-This service is the core of the AI analysis execution system.
+## Folder structure
+
+```text
+root
+├── src
+│   ├── ai              // provider implementations and selection logic
+│   ├── config          // env parsing and configuration helpers
+│   ├── constants       // shared constants (TTL, limits, etc.)
+│   ├── cron            // scheduled tasks (sync DB, cleanup, expire stale jobs)
+│   ├── db              // database client and queries
+│   ├── plugins         // Fastify plugins (redis, db, shutdown, etc.)
+│   ├── redis           // redis client, keys, Lua scripts
+│   ├── routes          // HTTP routes (resume, admin, health)
+│   ├── server.ts       // Fastify bootstrap
+│   ├── services        // domain services (user limits preload, etc.)
+│   ├── types           // shared TypeScript types
+│   ├── utils           // helper utilities
+│   └── worker          // BullMQ worker entrypoint and pipeline
+├── supabase
+│   ├── config.toml
+│   ├── helpers
+│   ├── migrations
+│   └── seed.sql
+├── test
+│   ├── integration
+│   ├── mock
+│   ├── unit
+│   └── utils
+├── scripts
+│   ├── cleanupStaleJobs.ts
+│   ├── createAdminUser.ts
+│   └── makeAdminExisting.ts
+├── docs
+│   ├── Architecture.md
+│   ├── RateLimits.md
+│   ├── TESTS.md
+│   └── Woker.md
+├── README.md
+├── Dockerfile
+├── docker-compose.develop.yml
+├── docker-compose.test.yml
+├── eslint.config.cjs
+├── fly.redis.toml
+├── fly.toml
+├── package.json
+├── tsconfig.build.json
+├── tsconfig.json
+└── vitest.config.ts
+```
+
+## This service is the core of the AI analysis execution system.
+
 It processes jobs considering:
 
 - **Model Limits** (RPM / RPD) — enforced by the worker
@@ -167,6 +218,9 @@ job:{id}:result
 
 - `combinedCheckAndAcquire`: cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, checks model RPD (without consuming); returns code OK / CONCURRENCY / USER_RPD / MODEL_RPD.
 - `consumeExecutionLimits`: atomically checks and consumes model RPM/RPD.
+- `decrAndClampToZero`: decrements a numeric key and clamps the value at 0 (used for queue counters).
+- `returnTokensAtomic`: atomically returns RPM/RPD/user RPD tokens with TTL updates; safe to call when jobs are cancelled/expired/failed.
+- `expireStaleJob`: removes old waiting/delayed jobs, decrements queue/user counters, marks job meta/result as `failed/expired`, and stamps `expired_at`.
 
 ---
 
@@ -225,9 +279,13 @@ Returns:
 
 Updates worker concurrency without deployment (requires internal API key):
 
-```json
+```typescript
 { "queue": "lite" | "hard", "concurrency": 12 }
 ```
+
+## POST `/admin/update-models-limits`
+
+Update models limits from DB (requires internal API key):
 
 ## GET `/health`
 
@@ -304,10 +362,11 @@ model:{name}:limits
 ```ts
 async function shutdown() {
   await fastify.close();
+  await queueLite.close();
+  await queueHard.close();
   await stopCron();
-  await worker.close();
-  await queue.close();
   await redis.quit();
+  await db.end();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

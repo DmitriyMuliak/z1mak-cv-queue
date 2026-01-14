@@ -2,14 +2,14 @@
 
 This service is a separate Docker module, consisting of:
 
-| Component                    | Purpose                                                                                                                          |
-| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
-| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure |
-| **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                              |
-| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                             |
-| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                        |
+| Component                    | Purpose                                                                                                                                                                                              |
+| :--------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure                                                                     |
+| **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                                                                                                  |
+| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                                                                                                 |
+| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                                                                                            |
 | **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; meta/result keys have 24h TTL, shortened to 5 minutes after sync; meta-only older than grace are persisted as failed |
-| **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                 |
+| **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                                                                                     |
 
 The service guarantees:
 
@@ -49,21 +49,21 @@ flowchart TD
 
 # ⚙️ 3. **Core Functional Goals**
 
-| Feature                           | Guarantee                                                                                            |
-| :-------------------------------- | :--------------------------------------------------------------------------------------------------- |
-| **Global Model Limits (RPM/RPD)** | Models are not overloaded (consumed in worker; RPM $\rightarrow$ delayed, RPD $\rightarrow$ fail)    |
-| **User Daily RPD (Fixed Window)** | API acquires token via Lua (pre-enqueue)                                                             |
-| **User Concurrency (ZSET TTL)**   | API maintains active jobs with $\text{TTL} \sim 31 \text{ min}$, cleans up zombies in Lua and worker |
-| **Queue Backpressure**            | Each model has `queue:waiting:{model}` + dynamic `maxQueueLength` ($\sim 30 \text{ min}$ SLA)        |
-| **Fallback**                      | Models automatically shift down in priority **at the API layer** before queuing                      |
-| **Retry**                         | AI retryable $\rightarrow$ BullMQ delay; non-retryable/limit $\rightarrow$ immediate fail            |
-| **Token Return**                  | Model tokens are refunded upon final failure/processing of QueueEvents                               |
-| **DB Persistence**                | No job is lost; meta-only jobs older than grace are persisted as failed                              |
-| **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                              |
-| **Dynamic Worker Concurrency**    | Worker concurrency is read from Redis, updated via Pub/Sub + admin endpoint                          |
-| **Stalled Recovery**              | BullMQ stalled detection configured (60s lock/stalled interval, max stalled count 1) for dead workers|
-| **Scalability**                   | Up to $\text{20–50k RPS}$ without major changes                                                      |
-| **Fault Tolerance**               | Worker crash $\rightarrow$ job requeued, lock auto-expire                                            |
+| Feature                           | Guarantee                                                                                             |
+| :-------------------------------- | :---------------------------------------------------------------------------------------------------- |
+| **Global Model Limits (RPM/RPD)** | Models are not overloaded (consumed in worker; RPM $\rightarrow$ delayed, RPD $\rightarrow$ fail)     |
+| **User Daily RPD (Fixed Window)** | API acquires token via Lua (pre-enqueue)                                                              |
+| **User Concurrency (ZSET TTL)**   | API maintains active jobs with $\text{TTL} \sim 31 \text{ min}$, cleans up zombies in Lua and worker  |
+| **Queue Backpressure**            | Each model has `queue:waiting:{model}` + dynamic `maxQueueLength` ($\sim 30 \text{ min}$ SLA)         |
+| **Fallback**                      | Models automatically shift down in priority **at the API layer** before queuing                       |
+| **Retry**                         | AI retryable $\rightarrow$ BullMQ delay; non-retryable/limit $\rightarrow$ immediate fail             |
+| **Token Return**                  | Model tokens are refunded upon final failure/processing of QueueEvents                                |
+| **DB Persistence**                | No job is lost; meta-only jobs older than grace are persisted as failed                               |
+| **Zero Downtime Reconfiguration** | Model limits hot-reload                                                                               |
+| **Dynamic Worker Concurrency**    | Worker concurrency is read from Redis, updated via Pub/Sub + admin endpoint                           |
+| **Stalled Recovery**              | BullMQ stalled detection configured (60s lock/stalled interval, max stalled count 1) for dead workers |
+| **Scalability**                   | Up to $\text{20–50k RPS}$ without major changes                                                       |
+| **Fault Tolerance**               | Worker crash $\rightarrow$ job requeued, lock auto-expire                                             |
 
 ---
 

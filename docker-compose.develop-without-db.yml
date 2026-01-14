@@ -1,5 +1,5 @@
 services:
-  # Основний API сервіс
+  # API service
   api:
     build:
       context: .
@@ -25,7 +25,7 @@ services:
       mock-gemini:
         condition: service_healthy
 
-  # Worker з підключеним mock-провайдером через -r (preload)
+  # Worker with mock-provider via -r (preload)
   worker:
     build:
       context: .
@@ -50,7 +50,7 @@ services:
       redis:
         condition: service_started
 
-  # Mock сервер для Gemini (залишаємо для dev-ізоляції)
+  # Mock server for Gemini (keep for dev-isolation)
   mock-gemini:
     build:
       context: .
@@ -59,7 +59,7 @@ services:
     environment:
       PORT: '8080'
     ports:
-      - '8080:8080' # Залишаємо, щоб ти міг з хоста робити POST на /__config
+      - '8080:8080' # keep, for have possibility call POST on /__config from Host
     healthcheck:
       test:
         [
