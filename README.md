@@ -1,5 +1,55 @@
 # 🚀 **AI Resume analyzer Service — Queue + Worker + API Backend**
 
+## Folder structure
+
+```text
+root
+├── src
+│   ├── ai
+│   ├── config
+│   ├── constants
+│   ├── cron
+│   ├── db
+│   ├── plugins
+│   ├── redis
+│   ├── routes
+│   ├── server.ts
+│   ├── services
+│   ├── types
+│   ├── utils
+│   └── worker
+├── supabase
+│   ├── config.toml
+│   ├── helpers
+│   ├── migrations
+│   └── seed.sql
+├── test
+│   ├── integration
+│   ├── mock
+│   ├── unit
+│   └── utils
+├── scripts
+│   ├── cleanupStaleJobs.ts
+│   ├── createAdminUser.ts
+│   └── makeAdminExisting.ts
+├── docs
+│   ├── Architecture.md
+│   ├── RateLimits.md
+│   ├── TESTS.md
+│   └── Woker.md
+├── README.md
+├── Dockerfile
+├── docker-compose.develop.yml
+├── docker-compose.test.yml
+├── eslint.config.cjs
+├── fly.redis.toml
+├── fly.toml
+├── package.json
+├── tsconfig.build.json
+├── tsconfig.json
+└── vitest.config.ts
+```
+
 This service is the core of the AI analysis execution system.
 It processes jobs considering:
 
