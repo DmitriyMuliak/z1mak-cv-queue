@@ -17,12 +17,6 @@ It processes jobs considering:
 > **This is NOT a Next.js API.**
 > Next.js only proxies requests to this service.
 
-## Local Supabase (Postgres)
-
-- Start local stack: `npm run supabase start` (uses the bundled Supabase CLI).
-- Postgres URL for this service: `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` (ports match `supabase/config.toml`).
-- Only Postgres is used here; Supabase auth/storage are not required.
-
 ---
 
 # 📚 Table of Contents
@@ -323,7 +317,7 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 ```
 
-# 📁 10. ## Folder structure
+# 📁 10. Folder structure
 
 ```text
 root
