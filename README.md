@@ -209,7 +209,6 @@ Returns:
 - `in_progress`
 - `completed`
 - `failed`
-- `expired`
 
 ## GET `/resume/:id/result`
 
