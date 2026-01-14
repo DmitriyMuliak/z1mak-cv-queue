@@ -359,7 +359,7 @@ root
 │   ├── Architecture.md
 │   ├── RateLimits.md
 │   ├── TESTS.md
-│   └── Woker.md
+│   └── Worker.md
 ├── README.md
 ├── Dockerfile
 ├── docker-compose.develop.yml
