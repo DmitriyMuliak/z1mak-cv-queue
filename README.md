@@ -5,19 +5,19 @@
 ```text
 root
 ├── src
-│   ├── ai
-│   ├── config
-│   ├── constants
-│   ├── cron
-│   ├── db
-│   ├── plugins
-│   ├── redis
-│   ├── routes
-│   ├── server.ts
-│   ├── services
-│   ├── types
-│   ├── utils
-│   └── worker
+│   ├── ai              // provider implementations and selection logic
+│   ├── config          // env parsing and configuration helpers
+│   ├── constants       // shared constants (TTL, limits, etc.)
+│   ├── cron            // scheduled tasks (sync DB, cleanup, expire stale jobs)
+│   ├── db              // database client and queries
+│   ├── plugins         // Fastify plugins (redis, db, shutdown, etc.)
+│   ├── redis           // redis client, keys, Lua scripts
+│   ├── routes          // HTTP routes (resume, admin, health)
+│   ├── server.ts       // Fastify bootstrap
+│   ├── services        // domain services (user limits preload, etc.)
+│   ├── types           // shared TypeScript types
+│   ├── utils           // helper utilities
+│   └── worker          // BullMQ worker entrypoint and pipeline
 ├── supabase
 │   ├── config.toml
 │   ├── helpers
@@ -50,7 +50,8 @@ root
 └── vitest.config.ts
 ```
 
-This service is the core of the AI analysis execution system.
+## This service is the core of the AI analysis execution system.
+
 It processes jobs considering:
 
 - **Model Limits** (RPM / RPD) — enforced by the worker
