@@ -31,15 +31,7 @@ describe('shutdownEmitter ordering', () => {
 
     await triggerShutdown();
 
-    expect(calls).toEqual([
-      'fastify',
-      'worker',
-      'queueLite',
-      'queueHard',
-      'cron',
-      'redis',
-      'db',
-    ]);
+    expect(calls).toEqual(['fastify', 'queueLite', 'queueHard', 'cron', 'redis', 'db']);
   });
 
   it('ignores repeated shutdown invocations after the first run', async () => {
