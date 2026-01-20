@@ -14,6 +14,9 @@ interface BuildPromptSettingsOptions {
   locale: string;
 }
 
+// Overview of prompting strategies
+// https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies
+
 export const buildPromptSettings = ({
   cvDescription,
   jobDescription,
