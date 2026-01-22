@@ -1,4 +1,3 @@
-# fly.toml
 app = "ai-job-processor"
 primary_region = "arn" # fly platform regions
 
@@ -16,20 +15,9 @@ primary_region = "arn" # fly platform regions
 [processes]
   web = "node dist/src/server.js"
   worker = "node dist/src/worker/index.js"
-  # Important: використовуємо повний шлях до бінарника, який є в офіційному образі Redis
-  # redis = "redis-server --dir /data/redis --save 60 1 --appendonly no"
 
 # ===============================================
-# 🚀 1. Volumes
-# ===============================================
-# [[mounts]]
-  # fly volumes create redis_data --region arn --size 1
-  # source = "redis_data"   # Name which we give to the volume on creation
-  # destination = "/data/redis" # Path inside the container
-  # processes = ["redis"]      # IMPORTANT: disk is attached ONLY to the redis process
-
-# ===============================================
-# 🚀 2. VM Resources
+# 🚀 VM Resources
 # ===============================================
 [[vm]]
   processes = ["web"]
@@ -42,13 +30,6 @@ primary_region = "arn" # fly platform regions
   cpu_kind = "shared"
   cpus = 1
   memory_mb = 256
-
-# [[vm]]
-#   processes = ["redis"]
-#   image = "redis:7-alpine" # Because we don't have redis in our main Dockerfile
-#   cpu_kind = "shared"
-#   cpus = 1
-#   memory_mb = 256
 
 # -----------------------------------------------
 # WEB (API Server) -
@@ -82,18 +63,3 @@ primary_region = "arn" # fly platform regions
   [[services.ports]]
     port = 443
     handlers = ["tls", "http"]
-
-# -----------------------------------------------
-# REDIS (Internal only)
-# -----------------------------------------------
-
-# [[services]]
-#   processes = ["redis"]
-#   internal_port = 6379
-#   protocol = "tcp"
-
-#   min_machines_running = 1
-
-#   [[services.tcp_checks]]
-#     interval = "20s"
-#     timeout = "2s"
