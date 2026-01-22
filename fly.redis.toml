@@ -1,4 +1,3 @@
-# fly.redis.toml
 app = "ai-job-processor-redis"
 primary_region = "arn"
 
@@ -29,7 +28,7 @@ primary_region = "arn"
 
   [[services.ports]]
     port = 6379
-    handlers = []  # "tls" або пусто, якщо внутрішній доступ
+    handlers = []  # "tls" or empty, in case of internal access
 
   # [[services.tcp_checks]]
   #   interval = "20s"
