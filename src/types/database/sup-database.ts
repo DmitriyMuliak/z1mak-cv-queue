@@ -1,4 +1,4 @@
-import type { Tables } from './database-gen';
+import type { Tables } from './sup-database-gen';
 
 export type AIModel = Tables<'ai_models'>;
 export type CvAnalyzes = Tables<'cv_analyzes'>;
