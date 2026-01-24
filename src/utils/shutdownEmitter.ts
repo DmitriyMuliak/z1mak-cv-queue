@@ -1,5 +1,3 @@
-import { EventEmitter } from 'events';
-
 export type ShutdownHandler = () => Promise<void> | void;
 
 type ShutdownEntry = {
@@ -18,11 +16,6 @@ export enum ShutdownPriority {
   DATABASE = 60,
 }
 
-const emitter = new EventEmitter();
-emitter.setMaxListeners(50);
-
-export const shutdownEmitter = emitter;
-
 const shutdownEntries: ShutdownEntry[] = [];
 let handlerOrder = 0;
 let isShuttingDown = false;
@@ -30,7 +23,6 @@ let isShuttingDown = false;
 export const onShutdown = (handler: ShutdownHandler, priority = 0): void => {
   shutdownEntries.push({ handler, priority, order: handlerOrder });
   handlerOrder += 1;
-  emitter.on('shutdown', handler);
 };
 
 export const triggerShutdown = async (): Promise<void> => {
