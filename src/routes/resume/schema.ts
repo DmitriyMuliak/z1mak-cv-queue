@@ -11,8 +11,6 @@ const ModeSchema = Type.Object(
 
 export const RunAiJobBodySchema = Type.Object(
   {
-    userId: Type.String({ minLength: 1 }),
-    role: Type.Union([Type.Literal('user'), Type.Literal('admin')]),
     payload: Type.Object(
       {
         cvDescription: Type.String({ minLength: 1 }),
@@ -42,7 +40,7 @@ export const UserIdParamsSchema = Type.Object(
 
 export const RecentUserQuerySchema = Type.Object(
   {
-    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 40 })),
     offset: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: false }

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import corsDenyPlugin from './plugins/corsDeny';
 import internalAuthPlugin from './plugins/internalAuth';
 import redisPlugin from './plugins/redis';
+import authPlugin from './plugins/auth';
 import dbPlugin from './plugins/database';
 import shutdownPlugin from './plugins/shutdown';
 import resumeRoutes from './routes/resume/resume';
@@ -17,6 +18,7 @@ const start = async () => {
   await fastify.register(dbPlugin);
   await fastify.register(corsDenyPlugin);
   await fastify.register(internalAuthPlugin);
+  await fastify.register(authPlugin);
   await fastify.register(redisPlugin);
   await fastify.register(shutdownPlugin);
 

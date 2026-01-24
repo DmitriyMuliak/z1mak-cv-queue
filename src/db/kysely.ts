@@ -1,3 +1,5 @@
+// TODO: Migrate from pure SQL to kysely.
+
 // import { Kysely, sql, Transaction, PostgresDialect } from 'kysely';
 // import { Pool } from 'pg';
 // import { DB } from '../types/database/database-gen';
@@ -51,13 +53,3 @@
 //     db: Kysely<DB>;
 //   }
 // }
-
-// export default fp(async (fastify) => {
-//   // Додаємо db в контекст fastify
-//   fastify.decorate('db', db);
-
-//   // Важливо: закриваємо пул при зупинці сервера (Graceful Shutdown)
-//   fastify.addHook('onClose', async (instance) => {
-//     await instance.db.destroy();
-//   });
-// });
