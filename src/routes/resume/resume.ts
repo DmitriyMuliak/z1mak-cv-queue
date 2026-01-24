@@ -102,6 +102,8 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         requestedModel,
         selectedModel,
         body,
+        role: userRole,
+        userId,
         modeType,
         createdAtMs: now,
       });

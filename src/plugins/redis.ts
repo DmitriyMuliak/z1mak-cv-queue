@@ -4,12 +4,13 @@ import { createRedisClient, RedisWithScripts } from '../redis/client';
 import { env } from '../config/env';
 import { onShutdown, ShutdownPriority } from '../utils/shutdownEmitter';
 import type { FastifyInstance } from 'fastify';
+import type { QueueType } from '../types/queue';
 
 declare module 'fastify' {
   interface FastifyInstance {
     redis: RedisWithScripts;
-    queueLite: Queue;
-    queueHard: Queue;
+    queueLite: QueueType;
+    queueHard: QueueType;
   }
 }
 
@@ -25,12 +26,12 @@ export default fp(async (fastify: FastifyInstance) => {
   const queueLite = new Queue(env.queueLiteName, {
     connection: { url: env.redisUrl },
     defaultJobOptions,
-  });
+  }) as QueueType;
 
   const queueHard = new Queue(env.queueHardName, {
     connection: { url: env.redisUrl },
     defaultJobOptions,
-  });
+  }) as QueueType;
 
   fastify.decorate('redis', redis);
   fastify.decorate('queueLite', queueLite);
