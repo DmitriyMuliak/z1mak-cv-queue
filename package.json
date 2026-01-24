@@ -31,25 +31,29 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:pull": "supabase db pull",
-    "supabase:types:update": "supabase gen types typescript --linked > src/types/database-gen.ts",
+    "supabase:types:update": "supabase gen types typescript --linked > src/types/database/sup-database-gen.ts",
+    "kysely:types:update": "dotenv -e .env.development -- kysely-codegen --out-file src/types/database/database-gen.d.ts",
     "admin:make": "dotenv -e .env.development -- ts-node scripts/makeAdminExisting.ts",
     "admin:create": "dotenv -e .env.development -- ts-node scripts/createAdminUser.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "Muliak Dmytro",
   "license": "MIT",
   "dependencies": {
-    "@google/genai": "^1.5.0",
-    "@sinclair/typebox": "^0.34.41",
-    "@supabase/supabase-js": "^2.48.0",
-    "bullmq": "^5.12.5",
-    "fastify": "^4.27.0",
-    "fastify-plugin": "^4.5.1",
-    "immer": "^10.1.1",
-    "ioredis": "^5.4.2",
+    "@fastify/jwt": "^10.0.0",
+    "@google/genai": "^1.38.0",
+    "@sinclair/typebox": "^0.34.46",
+    "@supabase/supabase-js": "^2.91.0",
+    "bullmq": "^5.66.7",
+    "fastify": "^5.7.1",
+    "fastify-plugin": "^5.1.0",
+    "get-jwks": "^11.0.3",
+    "immer": "^11.1.3",
+    "ioredis": "^5.9.2",
+    "kysely": "^0.28.10",
     "luxon": "^3.7.2",
-    "pg": "^8.13.1",
-    "uuid": "^11.0.3"
+    "pg": "^8.17.2",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
@@ -58,15 +62,22 @@
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
-    "eslint": "^9.13.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.2.1",
-    "dotenv-cli": "^7.4.2",
-    "prettier": "^3.3.3",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "kysely-codegen": "^0.19.0",
+    "prettier": "^3.8.1",
     "shx": "^0.4.0",
-    "supabase": "^2.67.1",
+    "supabase": "^2.72.8",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3",
-    "vitest": "^4.0.16"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "supabase": {
+      "tar": "^7.5.6"
+    },
+    "elliptic": "^6.6.1"
   }
 }

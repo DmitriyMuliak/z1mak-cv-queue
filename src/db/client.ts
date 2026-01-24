@@ -131,6 +131,30 @@ export const withClient = async <T>(
   }
 };
 
+interface RlsUser {
+  sub: string;
+  role: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Wrapper around transaction with user identity.
+ */
+export async function withUserContext<T>(
+  user: RlsUser,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  return withTransaction(async (client) => {
+    await client.query(
+      `SELECT
+         set_config('role', 'authenticated', true),
+         set_config('request.jwt.claims', $1, true)`,
+      [JSON.stringify(user)]
+    );
+    return await fn(client);
+  });
+}
+
 // Export as db/pgClient to avoid confusion with supabase-js
 export const db = {
   query,
@@ -138,6 +162,7 @@ export const db = {
   end,
   withTransaction,
   withClient,
+  withUserContext,
   isConnected,
   getPool: () => pool, // sometimes useful to access the underlying pool
 };

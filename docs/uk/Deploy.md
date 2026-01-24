@@ -45,6 +45,8 @@ fly platform regions
 fly machines list --app ai-job-processor
 fly status -a ai-job-processor-redis
 fly volumes list -a ai-job-processor-redis
+fly ssh console -a ai-job-processor
+printenv SPECIFIC_OR_EMPTY_FOR_ALL
 fly secrets set REDIS_FAMILY=6 --app ai-job-processor
 
 # Instances

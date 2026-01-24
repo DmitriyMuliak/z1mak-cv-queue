@@ -23,17 +23,22 @@ import { parseMaybeJson } from '../../utils/parseJson';
 import { ModeType } from '../../types/mode';
 import { numberFromQuery } from '../../utils/queryUtils';
 import { CONCURRENCY_TTL_SECONDS } from './consts';
-import type { CvAnalyzes } from '../../types/database/database';
+import type { CvAnalyzes } from '../../types/database/sup-database';
 
 export default async function resumeRoutes(fastify: FastifyInstance) {
+  fastify.addHook('onRequest', fastify.authenticate);
+
   fastify.post<{ Body: RunAiJobBody }>(
     '/analyze',
     { schema: { body: RunAiJobBodySchema } },
     async (request, reply) => {
       const body = request.body;
 
-      const userLimits = await getCachedUserLimits(fastify.redis, body.userId, body.role);
-      const isAdmin = body.role === 'admin' || userLimits.unlimited;
+      const userId = request.user.sub;
+      const userRole = request.user.app_metadata.role;
+
+      const userLimits = await getCachedUserLimits(fastify.redis, userId, userRole);
+      const isAdmin = userRole === 'admin' || userLimits.unlimited;
 
       const jobId = uuidv4();
       const now = Date.now();
@@ -48,7 +53,7 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       const selection = await selectAvailableModel({
         redis: fastify.redis,
         modelChain,
-        userId: body.userId,
+        userId,
         isAdmin,
         userLimits,
         modeType,
@@ -97,6 +102,8 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         requestedModel,
         selectedModel,
         body,
+        role: userRole,
+        userId,
         modeType,
         createdAtMs: now,
       });
@@ -132,12 +139,15 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       }
 
       // Fallback to DB (Redis TTL may have expired)
-      const dbResult = await db.query<
-        Pick<CvAnalyzes, 'status' | 'result' | 'error' | 'created_at' | 'finished_at'>
-      >(
-        'SELECT status, result, error, finished_at, created_at FROM cv_analyzes WHERE id = $1',
-        [jobId]
-      );
+      const dbResult = await db.withUserContext(request.user, async (client) => {
+        return client.query<
+          Pick<CvAnalyzes, 'status' | 'result' | 'error' | 'created_at' | 'finished_at'>
+        >(
+          'SELECT status, result, error, finished_at, created_at FROM cv_analyzes WHERE id = $1',
+          [jobId]
+        );
+      });
+
       if (dbResult.rows.length > 0) {
         const row = dbResult.rows[0];
         return {
@@ -171,13 +181,15 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
         return { status: metaStatus || 'queued' };
       }
 
-      const dbStatus = await db.query<Pick<CvAnalyzes, 'status'>>(
-        'SELECT status FROM cv_analyzes WHERE id = $1',
-        [jobId]
-      );
+      const dbStatus = await db.withUserContext(request.user, async (client) => {
+        return client.query<Pick<CvAnalyzes, 'status'>>(
+          'SELECT status FROM cv_analyzes WHERE id = $1',
+          [jobId]
+        );
+      });
 
       if (dbStatus.rows.length > 0) {
-        return { status: dbStatus.rows[0].status as string };
+        return { status: dbStatus.rows[0].status };
       }
 
       return reply.status(404).send({ error: 'NOT_FOUND' });
@@ -186,7 +198,9 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
 
   fastify.get<{ Params: UserIdParams; Querystring: RecentUserQuery }>(
     '/user/:userId/recent',
-    { schema: { params: UserIdParamsSchema, querystring: RecentUserQuerySchema } },
+    {
+      schema: { params: UserIdParamsSchema, querystring: RecentUserQuerySchema },
+    },
     async (request) => {
       const { userId } = request.params;
       const limit = Math.min(
@@ -195,18 +209,20 @@ export default async function resumeRoutes(fastify: FastifyInstance) {
       );
       const offset = Math.max(0, Math.floor(numberFromQuery(request.query.offset, 0)));
 
-      const result = await db.query<
-        Pick<CvAnalyzes, 'id' | 'status' | 'created_at' | 'finished_at'>
-      >(
-        `
-        SELECT id, finished_at, created_at, status
-        FROM cv_analyzes
-        WHERE user_id = $1
-        ORDER BY COALESCE(finished_at, created_at) DESC
-        LIMIT $2 OFFSET $3
-      `,
-        [userId, limit, offset]
-      );
+      const result = await db.withUserContext(request.user, async (client) => {
+        return await client.query<
+          Pick<CvAnalyzes, 'id' | 'status' | 'created_at' | 'finished_at'>
+        >(
+          `
+            SELECT id, finished_at, created_at, status
+            FROM cv_analyzes
+            WHERE user_id = $1
+            ORDER BY COALESCE(finished_at, created_at) DESC
+            LIMIT $2 OFFSET $3
+          `,
+          [userId, limit, offset]
+        );
+      });
 
       return result.rows.map((row) => ({
         id: row.id,
