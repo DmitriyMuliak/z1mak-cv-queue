@@ -181,8 +181,6 @@ describe('Rate limiter (model RPM/RPD)', () => {
     expect(second.json.error).oneOf(['MODEL_LIMIT', 'QUEUE_FULL']);
   });
 
-  it.todo('Add case for QUEUE_FULL status.(Its hard to reproduce in this type of tests)');
-
   it('throttles user RPD', async () => {
     const modelId = 'flashLite';
     await seedModelLimits(redis, modelId, 100, 100);
