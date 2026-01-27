@@ -15,6 +15,7 @@ import {
   RunBody,
 } from '../utils/rateTestUtils';
 import { getCurrentDatePT } from '../../src/utils/time';
+import { AVG_SECONDS, computeMaxQueueLength } from '../../src/routes/resume/queueUtils';
 
 const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => {
   const res = await postJob(body);
@@ -52,6 +53,9 @@ describe('Rate limiter (model RPM/RPD)', () => {
   beforeAll(async () => {
     await startCompose();
     redis = createRedis();
+    // Set low Concurrency
+    // await redis.set(redisKeys.workerConcurrency('lite'), '1');
+    // await redis.publish(redisChannels.configUpdate, 'reload');
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
     await waitForApi();
   }, 120_000);
@@ -301,17 +305,46 @@ describe('Rate limiter (model RPM/RPD)', () => {
     expect(failures.every((r) => r.json.error === 'CONCURRENCY_LIMIT')).toBe(true);
   });
 
-  it('accepts many users without MODEL_LIMIT/User RPD rejections', async () => {
-    await seedModelLimits(redis, 'flashLite', 100, 10000);
-    const results = await runInBatches(200, 50, (i) =>
+  it('handles many distinct admin users without model/user limit errors', async () => {
+    await seedModelLimits(redis, 'flashLite', 200, 10000);
+    const results = await runInBatches(100, 50, (i) =>
       postJob({ ...createBody('lite'), userId: `user-${i}`, role: 'admin' })
     );
     const failures = results.filter((r) => r.status !== 200);
-    expect(failures.every((f) => f.json.error !== 'MODEL_LIMIT')).toBe(true);
-    expect(failures.every((f) => f.json.error !== 'USER_RPD_LIMIT:lite')).toBe(true);
-    // QUEUE_FULL is acceptable due to backpressure (~108 for rpm=100, avg=15s)
     const successes = results.filter((r) => r.status === 200);
-    expect(successes.length).toBeGreaterThan(90);
+
+    expect(successes.length).toBe(100);
+    expect(failures.length).toBe(0);
+  });
+
+  it('backpressures with QUEUE_FULL when rpm is low and provider is slow', async () => {
+    const modelId = 'flashLite';
+    // Low rpm keeps queue length small (~27 for rpm=1, avg=15s)
+    const maxQueueLength = computeMaxQueueLength(1, 10_000, AVG_SECONDS.lite);
+    const requestsAmount = 60;
+    const failureRequestsLength = requestsAmount - maxQueueLength;
+    const successRequestsLength = requestsAmount - failureRequestsLength;
+
+    await seedModelLimits(redis, modelId, 1, 10_000);
+
+    // Slow down provider so waiting counter doesn't drain during the burst
+    await configureMockGemini({
+      mode: 'success',
+      text: 'ok',
+      status: 200,
+      delayMs: 1000,
+    });
+
+    const results = await runInBatches(requestsAmount, requestsAmount, (i) =>
+      postJob({ ...createBody('lite'), userId: `queue-full-burst-${i}`, role: 'admin' })
+    );
+
+    const successes = results.filter((r) => r.status === 200);
+    const failures = results.filter((r) => r.status === 429);
+
+    expect(successes.length).toBe(successRequestsLength);
+    expect(failures.length).toBe(failureRequestsLength);
+
     expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);
   });
 });

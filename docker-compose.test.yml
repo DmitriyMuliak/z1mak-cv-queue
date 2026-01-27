@@ -6,7 +6,8 @@ services:
     build:
       context: .
       target: builder
-    command: ['node', 'dist/src/server.js']
+    command:
+      ['node', '-r', './dist/test/mock/fastify/plugins/auth.js', 'dist/src/server/index.js']
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'

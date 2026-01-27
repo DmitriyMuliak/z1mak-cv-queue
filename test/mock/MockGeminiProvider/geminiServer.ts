@@ -18,9 +18,10 @@ export type RequestBody = {
   locale: string;
 };
 
+// TODO: add request ID for separate global state
 const config: MockConfig = {
   mode: 'success',
-  status: 500,
+  status: 200,
   text: JSON.stringify({ data: 'mocked gemini text' }),
   delayMs: 0,
 };
@@ -41,7 +42,7 @@ app.post('/__config', async (request, reply) => {
   config.text = body.text ?? config.text;
   config.delayMs = body.delayMs ?? config.delayMs;
 
-  return reply.send({ ok: true, config });
+  return reply.send({ ok: config.mode === 'success', config });
 });
 
 app.post('/', async (request, reply) => {

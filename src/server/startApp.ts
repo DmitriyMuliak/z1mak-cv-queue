@@ -7,7 +7,7 @@ export const start = async () => {
   try {
     const app = await buildApp({ logger: true }, { syncUserLimitsFromDB, cronService });
 
-    await app.listen({ port: 3000, host: '0.0.0.0' });
+    await app.listen({ port: env.port, host: '0.0.0.0' });
 
     app.log.info(`Server running on port ${env.port}`);
   } catch (err) {
