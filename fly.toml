@@ -13,7 +13,7 @@ primary_region = "arn" # fly platform regions
 # ===============================================
 
 [processes]
-  web = "node dist/src/server.js"
+  web = "node dist/src/server/index.js"
   worker = "node dist/src/worker/index.js"
 
 # ===============================================
