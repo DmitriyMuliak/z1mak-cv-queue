@@ -50,7 +50,6 @@ describe('auth plugin', () => {
   });
 
   it('verifies JWT via JWKS and attaches user', async () => {
-    // const app = await buildApp();
     const expectedDomain = `https://${SUPABASE_REF}.supabase.co/auth/v1`;
 
     const token = signToken();
