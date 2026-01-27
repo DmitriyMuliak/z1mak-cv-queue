@@ -13,6 +13,8 @@ interface UserLimitRow {
   unlimited: boolean;
 }
 
+export type SyncUserLimitsFromDB = typeof syncUserLimitsFromDB;
+
 export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
   const USER_LIMITS_TTL_SECONDS = 60 * 60 * 24 * 2; // 1h * 24 * 2 (2 days cache)
   let rows: UserLimitRow[] = [];
