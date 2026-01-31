@@ -1,13 +1,13 @@
 import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
-import { stopCron } from '../cron';
+import { cronService } from '../cron';
 import { onShutdown, ShutdownPriority, triggerShutdown } from '../utils/shutdownEmitter';
 
 export default fp(async (fastify: FastifyInstance) => {
   let isShuttingDown = false;
   const stopCronHandler = async () => {
     try {
-      await stopCron();
+      await cronService.stop();
     } catch (err) {
       fastify.log.error(err, 'stopCron failed');
     }

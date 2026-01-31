@@ -7,6 +7,7 @@ export type WorkerMap = { lite: Worker; hard: Worker };
 export type WorkerFactory = (queueType: ModeType, concurrency: number) => Worker;
 export type { ModeType } from './types';
 
+// concurrency * 60 / 15 jobs/min. З 8 slots it's ~32 rpm,
 export const DEFAULT_CONCURRENCY = { hard: 3, lite: 8 };
 
 const parseConcurrency = (raw: string | null, fallback: number) => {

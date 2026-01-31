@@ -9,6 +9,7 @@ export const dockerAvailable = (() => {
     execSync('docker info', { stdio: 'ignore' });
     return true;
   } catch {
+    console.error('[rateTestUtils] Docker is not available');
     return false;
   }
 })();
@@ -106,6 +107,9 @@ export const postJob = async (body: RunBody) =>
   requestApi('/resume/analyze', 'POST', body, {
     'Content-Type': 'application/json',
     'x-internal-api-key': INTERNAL_KEY,
+    'x-test-user': body.userId,
+    'x-test-role': 'authenticated',
+    'x-test-user-role': body.role,
   });
 
 export const seedModelLimits = async (

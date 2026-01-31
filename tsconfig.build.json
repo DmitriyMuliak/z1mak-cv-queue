@@ -4,7 +4,8 @@
     "src/**/*",
     "api/**/*",
     "src/types/**/*",
-    "test/mock/MockGeminiProvider/**/*"
+    "test/mock/MockGeminiProvider/**/*",
+    "test/mock/fastify/plugins/**/*"
   ],
   "exclude": ["node_modules", "dist"]
 }

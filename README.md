@@ -308,7 +308,7 @@ async function shutdown() {
   await fastify.close();
   await queueLite.close();
   await queueHard.close();
-  await stopCron();
+  await cronService.stop();
   await redis.quit();
   await db.end();
   process.exit(0);

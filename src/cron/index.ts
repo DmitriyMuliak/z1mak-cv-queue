@@ -34,7 +34,7 @@ const expireStaleJobs = createExpireStaleJobs({
   expireSlaMs: EXPIRE_SLA_MS,
 });
 
-export const startCron = async () => {
+const start = async () => {
   await runWithLock(redis, 'reloadModelLimits', MODEL_RELOAD_MS, reloadModelLimits);
   // TODO: remove reloadModelLimits cron and use web hook (call /admin/update-models-limits)
   modelTimer = setInterval(
@@ -61,7 +61,7 @@ export const startCron = async () => {
   );
 };
 
-export const stopCron = async () => {
+const stop = async () => {
   if (modelTimer) clearInterval(modelTimer);
   if (syncTimer) clearInterval(syncTimer);
   if (cleanupTimer) clearInterval(cleanupTimer);
@@ -74,6 +74,13 @@ export const stopCron = async () => {
   await queueLite.close();
   await queueHard.close();
   await redis.quit();
+};
+
+export type CronService = typeof cronService;
+
+export const cronService = {
+  start,
+  stop,
 };
 
 // Exposed for unit tests
