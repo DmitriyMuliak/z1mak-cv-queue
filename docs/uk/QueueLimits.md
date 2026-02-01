@@ -1,5 +1,0 @@
-- README.md (line 69) — згадка backpressure: maxQueueLength орієнтується на ~30 хв SLA черги.
-- CONCURRENCY\*TTL_SECONDS — це TTL для слота конкурентності користувача, який ставиться в combinedCheckAndAcquire (Redis ZSET user:{id}:active_jobs). Він: обмежує кількість паралельних/очікуючих job на користувача (конкурентність);
-- index.ts (line 15) — EXPIRE*SLA_MS = 30 \* 60 * 1000 для SLA черги (waiting/delayed); використовується в expireStaleJobs.ts щоб вичищати застарілі jobs, повертати токени й маркувати як failed.
-- Architecture.md (line 58) і Architecture.md (line 57) — те саме про backpressure і ~30 хв SLA у високорівневому описі.
-- jobKeys.ts (line 2) — MISSING*RESULT_GRACE_MS = 35 * 60 \_ 1000 (коментар про ~30 хв backlog); застосовується в syncDbResults.ts (line 63) щоб вважати job із метаданими без результату «простроченим».
