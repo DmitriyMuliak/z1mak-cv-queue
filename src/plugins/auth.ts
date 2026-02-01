@@ -44,12 +44,8 @@ export default fp(async (fastify) => {
 
   fastify.decorate(
     'authenticate',
-    async function (request: FastifyRequest, reply: FastifyReply) {
-      try {
-        await request.jwtVerify();
-      } catch (err) {
-        reply.send(err);
-      }
+    async function (request: FastifyRequest) {
+      await request.jwtVerify();
     }
   );
 });
