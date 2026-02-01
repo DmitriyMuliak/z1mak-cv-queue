@@ -12,6 +12,8 @@ RUN npm ci --include=dev # Install all dependencies for build and tests
 COPY . .
 RUN npm run build
 
+# TODO: revert Dev stage with Volume for HMR
+
 # --- Stage 2: Test Runtime (docker-compose-test) ---
 FROM builder AS test-runtime
 ENV NODE_ENV=development
