@@ -3,9 +3,12 @@ services:
   api:
     build:
       context: .
-      target: builder
+      target: development
     restart: unless-stopped
-    command: ['node', 'dist/src/server.js']
+    command: ['npm', 'run', 'dev:api']
+    volumes:
+      - .:/app
+      - /app/node_modules
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
@@ -22,8 +25,6 @@ services:
     depends_on:
       redis:
         condition: service_started
-      db:
-        condition: service_healthy
       mock-gemini:
         condition: service_healthy
 
@@ -31,15 +32,12 @@ services:
   worker:
     build:
       context: .
-      target: builder
+      target: development
     restart: unless-stopped
-    command:
-      [
-        'node',
-        '-r',
-        './dist/test/mock/MockGeminiProvider/registerGeminiMock.js',
-        'dist/src/worker/index.js',
-      ]
+    command: ['npm', 'run', 'dev:worker:mock']
+    volumes:
+      - .:/app
+      - /app/node_modules
     environment:
       REDIS_URL: 'redis://redis:6379'
       REDIS_FAMILY: '4'
@@ -51,15 +49,16 @@ services:
     depends_on:
       redis:
         condition: service_started
-      db:
-        condition: service_healthy
 
   # Mock сервер для Gemini (залишаємо для dev-ізоляції)
   mock-gemini:
     build:
       context: .
-      target: builder
-    command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
+      target: development
+    command: ['npm', 'run', 'dev:mock-gemini']
+    volumes:
+      - .:/app
+      - /app/node_modules
     environment:
       PORT: '8080'
     ports:
@@ -84,26 +83,6 @@ services:
       - '6379:6379'
     volumes:
       - redis_data:/data
-
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
-    ports:
-      - '5432:5432'
-    volumes:
-      # In Alpine/Standard images path usually same,
-      # but we add sub folder /data for reliability
-      - supabase_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s # Clean Postgres starts much faster than Supabase
 
 volumes:
   redis_data:

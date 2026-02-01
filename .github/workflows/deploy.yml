@@ -34,6 +34,6 @@ jobs:
 
       - name: Deploy
         # Use rolling strategy for smooth instance replacement
-        run: flyctl deploy --remote-only --strategy rolling --wait-timeout 300
+        run: flyctl deploy --remote-only --wait-timeout 300
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
