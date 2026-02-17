@@ -1,0 +1,1 @@
+-- Content removed: This migration was Supabase-specific and not needed for integration tests.

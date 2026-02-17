@@ -23,7 +23,7 @@
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",
     "fix": "npm run lint -- --fix && npm run format:write",
     "test:unit": "vitest run test/unit",
-    "test:integration": "vitest run test/integration --pool=forks --maxConcurrency=1",
+    "test:integration": "vitest run test/integration",
     "test": "npm run test:unit && npm run test:integration",
     "build": "tsc -p tsconfig.build.json && npm run build:copy-lua",
     "build:copy-lua": "shx mkdir -p dist/src/redis && cp -r src/redis/luaScripts dist/src/redis/",

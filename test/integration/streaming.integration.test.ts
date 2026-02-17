@@ -14,6 +14,7 @@ import {
   waitForProcessedModel,
   postStreamJob,
   ndjsonToArray,
+  TEST_DB_PORT,
 } from '../utils/rateTestUtils';
 
 describe('Streaming, Fallback and DB Persistence Integration', () => {
@@ -23,13 +24,12 @@ describe('Streaming, Fallback and DB Persistence Integration', () => {
   beforeAll(async () => {
     await startCompose();
     redis = createRedis();
-    
-    // Connect to PostgreSQL via dedicated test port 54321
+
     pgClient = new Client({
-      connectionString: 'postgresql://postgres:postgres@127.0.0.1:54321/postgres',
+      connectionString: `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres`,
     });
     await pgClient.connect();
-    
+
     await waitForApi();
   }, 180_000);
 
@@ -42,7 +42,12 @@ describe('Streaming, Fallback and DB Persistence Integration', () => {
   beforeEach(async () => {
     await redis.flushall();
     await pgClient.query('DELETE FROM cv_analyzes');
-    await configureMockGemini({ mode: 'success', text: '{"result": "ok"}', status: 200, delayMs: 0 });
+    await configureMockGemini({
+      mode: 'success',
+      text: '{"result": "ok"}',
+      status: 200,
+      delayMs: 0,
+    });
   });
 
   it('completes full streaming cycle and persists data to PostgreSQL', async () => {
@@ -51,18 +56,23 @@ describe('Streaming, Fallback and DB Persistence Integration', () => {
 
     const body = { ...createBody('lite'), userId: 'stream-user', role: 'user' as const };
     const expectedText = '{"summary": "excellent candidate"}';
-    await configureMockGemini({ mode: 'success', text: expectedText, status: 200, delayMs: 10 });
+    await configureMockGemini({
+      mode: 'success',
+      text: expectedText,
+      status: 200,
+      delayMs: 10,
+    });
 
     const response = await postStreamJob(body);
     expect(response.status).toBe(200);
-    
+
     const jobId = response.headers.get('x-job-id');
     expect(jobId).toBeTruthy();
 
     // 1. Verify Streaming
     const chunks = await ndjsonToArray(response);
     expect(chunks.length).toBeGreaterThan(0);
-    expect(chunks.some(c => c.type === 'done')).toBe(true);
+    expect(chunks.some((c) => c.type === 'done')).toBe(true);
 
     // 2. Verify Redis Result
     const result = await waitForJobResult(redis, jobId!, 30_000);
@@ -73,8 +83,12 @@ describe('Streaming, Fallback and DB Persistence Integration', () => {
     await seedModelLimitsFull(redis, 'flash', 100, 100, 'lite', 1);
     await seedModelLimitsFull(redis, 'flashLite', 100, 1, 'lite', 2);
 
-    const body = { ...createBody('lite'), userId: 'fallback-user', role: 'admin' as const };
-    
+    const body = {
+      ...createBody('lite'),
+      userId: 'fallback-user',
+      role: 'admin' as const,
+    };
+
     const first = await postStreamJob(body);
     const firstJobId = first.headers.get('x-job-id');
     const firstUsed = await waitForProcessedModel(redis, firstJobId!, 10_000);
@@ -83,7 +97,7 @@ describe('Streaming, Fallback and DB Persistence Integration', () => {
     const second = await postStreamJob(body);
     const secondJobId = second.headers.get('x-job-id');
     const secondResult = await waitForJobResult(redis, secondJobId!, 10_000);
-    
+
     expect(secondResult.status).toBe('completed');
     expect(secondResult.used_model).toBe('flash');
   }, 40_000);

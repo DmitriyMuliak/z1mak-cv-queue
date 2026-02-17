@@ -17,10 +17,22 @@ export const dockerAvailable = (() => {
 export const usingCompose = composeRequested && dockerAvailable;
 export const composeFile = process.env.COMPOSE_FILE ?? 'docker-compose.test.yml';
 
-export const API_URL = process.env.TEST_API_URL ?? 'http://127.0.0.1:4000';
-export const REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:6379';
+const poolId = Number(process.env.VITEST_POOL_ID ?? 0);
+const offset = poolId * 100;
+
+const TEST_API_PORT = 4000 + offset;
+const TEST_REDIS_PORT = 6379 + offset;
+const TEST_MOCK_GEMINI_PORT = 8080 + offset;
+export const TEST_DB_PORT = 54321 + offset;
+
+export const PROJECT_NAME = `cv-queue-test-${poolId}`; // docker ps --filter "name=cv-queue-test"
+
+export const API_URL = process.env.TEST_API_URL ?? `http://127.0.0.1:${TEST_API_PORT}`;
+export const REDIS_URL =
+  process.env.TEST_REDIS_URL ?? `redis://127.0.0.1:${TEST_REDIS_PORT}`;
 export const GEMINI_MOCK_CONFIG_URL =
-  process.env.GEMINI_MOCK_CONFIG_URL ?? 'http://127.0.0.1:8080/__config';
+  process.env.GEMINI_MOCK_CONFIG_URL ??
+  `http://127.0.0.1:${TEST_MOCK_GEMINI_PORT}/__config`;
 export const INTERNAL_KEY = process.env.TEST_INTERNAL_KEY ?? 'internal-secret';
 
 const DEFAULT_MODEL_API_NAMES: Record<string, string> = {
@@ -246,30 +258,36 @@ export const waitForProcessedModel = async (
 export const startCompose = async () => {
   if (!usingCompose) return;
 
-  // For local debug:
-  // START
-  // First shell
-  // docker compose -f docker-compose.test.yml up -d --build db redis api worker mock-gemini
-  // Second shell
-  // docker compose -f docker-compose.test.yml logs -f api worker
-  // Third shell
-  // TEST_USE_COMPOSE=0 npm test -- rateLimiter.test.ts
-  // STOP
-  // docker compose -f docker-compose.test.yml down
+  const env = {
+    ...process.env,
+    TEST_API_PORT: String(TEST_API_PORT),
+    TEST_REDIS_PORT: String(TEST_REDIS_PORT),
+    TEST_MOCK_GEMINI_PORT: String(TEST_MOCK_GEMINI_PORT),
+    TEST_DB_PORT: String(TEST_DB_PORT),
+  };
+
+  console.log('startCompose - PROJECT_NAME:', PROJECT_NAME);
+
   execSync(
-    `docker compose -f ${composeFile} up -d --build db redis api worker mock-gemini`,
+    `docker compose -p ${PROJECT_NAME} -f ${composeFile} up -d --build db redis api worker mock-gemini`,
     {
       stdio: 'inherit',
+      env,
     }
   );
   await waitForApi();
 };
 
+// docker compose -p cv-queue-test-0 down -v
+// docker compose -f docker-compose.test.yml down -v
 export const stopCompose = async () => {
   if (!usingCompose) return;
-  execSync(`docker compose -f ${composeFile} down -v --remove-orphans`, {
-    stdio: 'inherit',
-  });
+  execSync(
+    `docker compose -p ${PROJECT_NAME} -f ${composeFile} down -v --remove-orphans`,
+    {
+      stdio: 'inherit',
+    }
+  );
 };
 
 export const createRedis = () => new Redis(REDIS_URL);
