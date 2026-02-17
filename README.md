@@ -70,14 +70,14 @@ flowchart LR
 ### **1) HTTP API: Standard vs Streaming**
 
 - **Payload validation**: Model selection + fallback logic (prior to enqueue).
-- **Lua `combinedCheckAndAcquire`**: 
+- **Lua `combinedCheckAndAcquire`**:
   - Validates user RPD (Rate Per Day) based on mode (lite/hard).
   - Acquires a concurrency lock in a ZSET.
   - Performs a soft model RPD pre-check.
 - **Backpressure**: Checks if `queue:waiting:{model}` exceeds dynamic `maxQueueLength` (\~30 min SLA).
 - **Enqueueing**:
   - **Standard (`/analyze`)**: Enqueues job and returns `{ jobId }` immediately. Client polls `/result`.
-  - **Streaming (`/analyze-stream`)**: 
+  - **Streaming (`/analyze-stream`)**:
     - API subscribes to Redis Pub/Sub channel `job:stream:{jobId}`.
     - API opens an HTTP connection with `Transfer-Encoding: chunked`.
     - API enqueues job with `streaming: true`.
@@ -90,7 +90,7 @@ flowchart LR
   - **Streaming**: Calls `modelProvider.executeStream()`. Each chunk received from AI is:
     1. Published to Redis Pub/Sub channel `job:stream:{jobId}`.
     2. Appended to a local buffer in the worker to form the full result.
-- **Completion**: 
+- **Completion**:
   - On success: Worker publishes `{"type":"done"}`, writes full result to Redis `job:{id}:result`, and updates metadata.
   - On failure: Worker publishes `{"type":"error"}`, triggers token refund (if AI wasn't reached), and marks status as `failed`.
 
@@ -112,6 +112,7 @@ flowchart LR
 # 🗄 3. Redis Structures
 
 ### Model Limits
+
 ```
 model:{model}:limits
   rpm
@@ -120,21 +121,25 @@ model:{model}:limits
 ```
 
 ### Model Catalog
+
 ```
 models:ids (SET) = list of model ids loaded from DB
 ```
 
 ### User Daily RPD (STRING with TTL)
+
 ```
 user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
 ```
 
 ### Concurrency Control
+
 ```
 user:{id}:active_jobs → ZSET(jobId, expiry_ts)
 ```
 
 ### Job Metadata
+
 ```
 job:{id}:meta
   user_id
@@ -151,6 +156,7 @@ job:{id}:meta
 ```
 
 ### Job Result
+
 ```
 job:{id}:result
   status
@@ -179,20 +185,26 @@ job:{id}:result
 This service has an HTTP API for integration with Next.js / other backends.
 
 ## POST `/resume/analyze`
+
 Starts the analysis (standard polling mode). Returns `{ jobId }`.
 
 ## POST `/resume/analyze-stream`
+
 Starts the analysis in **streaming mode** (NDJSON).
+
 - API subscribes to Redis Pub/Sub `job:stream:{jobId}`.
 - Streams chunks using `Transfer-Encoding: chunked`.
 
 ## GET `/resume/:id/status`
+
 Returns: `queued`, `in_progress`, `completed`, `failed`.
 
 ## GET `/resume/:id/result`
+
 Returns: `{ status, data?, error?, finished_at, used_model? }`.
 
 ## POST `/admin/worker-concurrency`
+
 Updates worker concurrency without deployment (requires internal API key):
 `{ "queue": "lite" | "hard", "concurrency": 12 }`
 
@@ -211,21 +223,26 @@ Updates worker concurrency without deployment (requires internal API key):
 # ⏱ 7. Cron Tasks
 
 ## **DB Sync Cron (every 30s)**
+
 1. SCAN `job:*:result`.
 2. Batch write to DB.
 3. Mark synced and shorten TTL to ~5m.
 
 ## **Model Limit Refresh (every X min)**
+
 Updates `model:{name}:limits` from DB.
 
 ## **Orphan Lock Cleanup (hourly)**
+
 - SCAN `user:*:active_jobs`.
 - Removes `jobID`s that are not present in BullMQ.
 
 ---
 
 # 🩺 8. Health Check
+
 `GET /health` reports:
+
 - Redis/DB connectivity.
 - Queue readiness + worker counts.
 - Memory/CPU/Uptime metrics.
@@ -233,6 +250,7 @@ Updates `model:{name}:limits` from DB.
 ---
 
 # 📴 9. Graceful Shutdown
+
 1. Stop accepting new jobs.
 2. Finish active work.
 3. Close BullMQ Queues and Redis connections.
@@ -261,7 +279,6 @@ root
 ├── docs
 │   ├── Architecture.md
 │   ├── RateLimits.md
-│   ├── FrontendStreamingIntegration.md
 │   ├── TESTS.md
 │   └── Worker.md
 ...
