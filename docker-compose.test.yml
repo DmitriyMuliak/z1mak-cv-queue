@@ -7,7 +7,12 @@ services:
       context: .
       target: builder
     command:
-      ['node', '-r', './dist/test/mock/fastify/plugins/auth.js', 'dist/src/server/index.js']
+      [
+        'node',
+        '-r',
+        './dist/test/mock/fastify/plugins/auth.js',
+        'dist/src/server/index.js',
+      ]
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
@@ -17,6 +22,7 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_BASE_URL: 'http://mock-gemini:8080'
+      DB_SYNC_INTERVAL_MS: '2000'
     ports:
       - '4000:4000'
     depends_on:
@@ -43,6 +49,7 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_MOCK_URL: 'http://mock-gemini:8080'
+      DB_SYNC_INTERVAL_MS: '2000'
     depends_on:
       - redis
       - db
@@ -70,3 +77,5 @@ services:
       POSTGRES_DB: 'postgres'
     ports:
       - '5432:5432'
+    # volumes:
+    #   - ./supabase/migrations:/docker-entrypoint-initdb.d

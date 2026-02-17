@@ -13,6 +13,10 @@ services:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
       REDIS_FAMILY: '4'
+      # For Supabase add next config:
+      #  DATABASE_URL: 'postgresql://postgres:postgres@host.docker.internal:54322/postgres?sslmode=disable'
+      #  extra_hosts:
+      #    "host.docker.internal:host-gateway"
       DATABASE_URL: 'postgresql://postgres:postgres@db:5432/postgres?sslmode=disable'
       BULLMQ_QUEUE: 'ai-jobs'
       GEMINI_API_KEY: ${GEMINI_API_KEY:-dev-key}
@@ -26,6 +30,8 @@ services:
       redis:
         condition: service_started
       mock-gemini:
+        condition: service_healthy
+      db:
         condition: service_healthy
 
   # Worker connected to mock-provider via -r (preload)
@@ -49,6 +55,8 @@ services:
     depends_on:
       redis:
         condition: service_started
+      db:
+        condition: service_healthy
 
   # Mock сервер для Gemini (залишаємо для dev-ізоляції)
   mock-gemini:
@@ -75,6 +83,23 @@ services:
       timeout: 2s
       retries: 5
 
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -86,4 +111,5 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:
   supabase_db_data:

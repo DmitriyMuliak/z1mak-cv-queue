@@ -35,6 +35,7 @@ export interface RedisJobMetaHash {
   mode_type?: RedisModeType;
   tokens_consumed?: 'true';
   provider_completed?: 'true' | 'false';
+  streaming?: 'true' | 'false';
 }
 
 export interface RedisJobResultHash {

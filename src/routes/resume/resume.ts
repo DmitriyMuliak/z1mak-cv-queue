@@ -25,8 +25,140 @@ import { numberFromQuery } from '../../utils/queryUtils';
 import { CONCURRENCY_TTL_SECONDS } from './consts';
 import type { CvAnalyzes } from '../../types/database/sup-database';
 
+import { redisChannels } from '../../redis/channels';
+
 export default async function resumeRoutes(fastify: FastifyInstance) {
   fastify.addHook('onRequest', fastify.authenticate);
+
+  fastify.post<{ Body: RunAiJobBody }>(
+    '/analyze-stream',
+    { schema: { body: RunAiJobBodySchema } },
+    async (request, reply) => {
+      const body = request.body;
+      const userId = request.user.sub;
+      const userRole = request.user.app_metadata.role;
+
+      const userLimits = await getCachedUserLimits(fastify.redis, userId, userRole);
+      const isAdmin = userRole === 'admin' || userLimits.unlimited;
+
+      const jobId = uuidv4();
+      const now = Date.now();
+      const todayPT = getCurrentDatePT();
+      const dayTtl = getSecondsUntilMidnightPT();
+      const modeType: ModeType = getModeType(body.payload.mode);
+
+      const chainFromMode = await resolveModelChain(fastify.redis, body.payload.mode);
+      const requestedModel = chainFromMode.requestedModel;
+      const modelChain = [requestedModel, ...chainFromMode.fallbackModels];
+
+      const selection = await selectAvailableModel({
+        redis: fastify.redis,
+        modelChain,
+        userId,
+        isAdmin,
+        userLimits,
+        modeType,
+        todayPT,
+        dayTtl,
+        now,
+        jobId,
+        concurrencyTtlSeconds: CONCURRENCY_TTL_SECONDS,
+      });
+
+      if (selection.status === 'error') {
+        return reply.status(429).send({ ok: false, error: selection.error });
+      }
+
+      const {
+        model: selectedModel,
+        modelRpm: selectedModelRpm,
+        modelRpd: selectedModelRpd,
+      } = selection;
+
+      const avgSeconds = modeType === 'hard' ? AVG_SECONDS.hard : AVG_SECONDS.lite;
+      const maxQueueLength = computeMaxQueueLength(
+        selectedModelRpm,
+        selectedModelRpd,
+        avgSeconds
+      );
+
+      const waitingKey = redisKeys.queueWaitingModel(selectedModel);
+      const waitingCount = await fastify.redis.incr(waitingKey);
+
+      if (waitingCount > maxQueueLength) {
+        await fastify.redis.decr(waitingKey);
+        return reply.status(429).send({
+          error: 'QUEUE_FULL',
+          message: `Queue backlog too large for model ${selectedModel}`,
+        });
+      }
+
+      const targetQueue = modeType === 'hard' ? fastify.queueHard : fastify.queueLite;
+
+      // Create subscriber BEFORE adding to queue to ensure we don't miss chunks
+      const subscriber = fastify.redis.duplicate();
+      const channel = redisChannels.jobStream(jobId);
+
+      // Set headers for NDJSON stream
+      reply.raw.setHeader('Content-Type', 'application/x-ndjson');
+      reply.raw.setHeader('Transfer-Encoding', 'chunked');
+      reply.raw.setHeader('Connection', 'keep-alive');
+      reply.raw.setHeader('Cache-Control', 'no-cache');
+      reply.raw.setHeader('x-job-id', jobId);
+
+      let isClosed = false;
+
+      const cleanup = async () => {
+        if (isClosed) return;
+        isClosed = true;
+        try {
+          await subscriber.unsubscribe(channel);
+          await subscriber.quit();
+        } catch (err) {
+          fastify.log.error({ err, jobId }, 'Failed to cleanup streaming subscriber');
+        }
+      };
+
+      request.raw.on('close', cleanup);
+
+      subscriber.on('message', (chan, message) => {
+        if (chan !== channel || isClosed) return;
+
+        reply.raw.write(message + '\n');
+
+        try {
+          const parsed = JSON.parse(message);
+          if (parsed.type === 'done' || parsed.type === 'error') {
+            reply.raw.end();
+            cleanup();
+          }
+        } catch (err) {
+          fastify.log.error({ err, jobId }, 'Chunk parse failed');
+          // Keep streaming even if parse fails, although it shouldn't
+        }
+      });
+
+      await subscriber.subscribe(channel);
+
+      await enqueueJob({
+        queue: targetQueue,
+        redis: fastify.redis,
+        waitingKey,
+        jobId,
+        requestedModel,
+        selectedModel,
+        body,
+        role: userRole,
+        userId,
+        modeType,
+        createdAtMs: now,
+        streaming: true,
+      });
+
+      // We don't return anything here, as we are writing to reply.raw
+      return reply;
+    }
+  );
 
   fastify.post<{ Body: RunAiJobBody }>(
     '/analyze',

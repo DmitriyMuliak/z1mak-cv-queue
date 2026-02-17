@@ -1,6 +1,6 @@
 import { QueueEvents, Queue } from 'bullmq';
 import { env } from '../config/env';
-import { createRedisClient } from '../redis/client';
+import { createRedisClient, RedisWithScripts } from '../redis/client';
 import { ModelProviderService } from '../ai/ModelProviderService';
 import { createConcurrencyManager, ModeType, WorkerMap } from './concurrencyManager';
 import { createQueueEventsRegistrar } from './queueEvents';
@@ -17,7 +17,7 @@ import { createConfigSubscription } from './configSubscription';
 import { waitForModelLimits } from './preflight';
 
 const redis = createRedisClient();
-const subRedis = createRedisClient();
+const subRedis = redis.duplicate() as RedisWithScripts;
 const modelProvider = new ModelProviderService();
 
 const MINUTE_TTL = 70;

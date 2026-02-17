@@ -4,14 +4,16 @@ This project limits the load on the external AI provider and users through three
 
 ## Request Flow
 
-1.  **API (`/resume/analyze`)**
+1.  **API (`/resume/analyze` or `/resume/analyze-stream`)**
     - Calls the Lua script `combinedCheckAndAcquire` with parameters like `userId`, `model`, `modeType`, etc.
+    - **Streaming Jobs**: follow the exact same rate-limiting and concurrency rules as standard jobs.
     - Checks and reserves:
       - `user:rpd:*` (User Daily Rate Per Day quota),
       - `user:active_jobs` (User concurrency),
       - `model:rpd` (Model Daily RPD quota).
     - Calculates `maxQueueLength` based on RPM/RPD and average duration, increments `queue:waiting:{model}`, and rejects with `QUEUE_FULL` if exceeded.
-    - Adds the job to BullMQ.
+    - **Model Fallback**: happens at this stage. Once a model is selected and the stream starts, it cannot fallback to another model if it fails mid-stream.
+    - Adds the job to BullMQ (with `streaming: true` if applicable).
 
 2.  **BullMQ worker (`src/worker/index.ts`)**
     - Worker concurrency is set during `Worker` creation (see `DEFAULT_CONCURRENCY` and dynamic updates via the Redis channel `configUpdate`).

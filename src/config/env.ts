@@ -8,6 +8,7 @@ export interface EnvConfig {
   supabaseUrl?: string;
   supabasePublicKey?: string;
   supabasePrivateKey?: string;
+  dbSyncIntervalMs: number;
   isProduction: boolean;
 }
 
@@ -39,5 +40,6 @@ export const env: EnvConfig = {
   queueHardName: process.env.BULLMQ_QUEUE_HARD || 'ai-jobs-hard',
   internalApiKey: process.env.INTERNAL_API_KEY,
   port: numberFromEnv(process.env.PORT, 4000),
+  dbSyncIntervalMs: numberFromEnv(process.env.DB_SYNC_INTERVAL_MS, 30000),
   isProduction: process.env.NODE_ENV === 'production',
 };

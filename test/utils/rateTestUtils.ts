@@ -17,10 +17,10 @@ export const dockerAvailable = (() => {
 export const usingCompose = composeRequested && dockerAvailable;
 export const composeFile = process.env.COMPOSE_FILE ?? 'docker-compose.test.yml';
 
-export const API_URL = process.env.TEST_API_URL ?? 'http://localhost:4000';
-export const REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://localhost:6379';
+export const API_URL = process.env.TEST_API_URL ?? 'http://127.0.0.1:4000';
+export const REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:6379';
 export const GEMINI_MOCK_CONFIG_URL =
-  process.env.GEMINI_MOCK_CONFIG_URL ?? 'http://localhost:8080/__config';
+  process.env.GEMINI_MOCK_CONFIG_URL ?? 'http://127.0.0.1:8080/__config';
 export const INTERNAL_KEY = process.env.TEST_INTERNAL_KEY ?? 'internal-secret';
 
 const DEFAULT_MODEL_API_NAMES: Record<string, string> = {
@@ -112,6 +112,68 @@ export const postJob = async (body: RunBody) =>
     'x-test-user-role': body.role,
   });
 
+export const postStreamJob = async (body: RunBody) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-internal-api-key': INTERNAL_KEY,
+    'x-test-user': body.userId,
+    'x-test-role': 'authenticated',
+    'x-test-user-role': body.role,
+  };
+  return fetch(`${API_URL}/resume/analyze-stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+};
+
+export const ndjsonToArray = async (response: Response): Promise<any[]> => {
+  const reader = response.body?.getReader();
+  if (!reader) return [];
+  const decoder = new TextDecoder();
+  const result: any[] = [];
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (value) {
+        const decoded = decoder.decode(value, { stream: true });
+        // console.log('[ndjsonToArray] Raw value:', decoded);
+        buffer += decoded;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              result.push(parsed);
+            } catch (e) {
+              console.error('[ndjsonToArray] Failed to parse line:', { line, e });
+            }
+          }
+        }
+      }
+
+      if (done) {
+        // Process last bit of buffer
+        if (buffer.trim()) {
+          try {
+            result.push(JSON.parse(buffer));
+          } catch (e) {
+            console.error('[ndjsonToArray] Process last bit of buffer:', e);
+          }
+        }
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return result;
+};
+
 export const seedModelLimits = async (
   redis: Redis,
   modelId: string,
@@ -121,6 +183,25 @@ export const seedModelLimits = async (
   const apiName = DEFAULT_MODEL_API_NAMES[modelId] ?? modelId;
   await redis.sadd(redisKeys.modelIds(), modelId);
   await redis.hset(redisKeys.modelLimits(modelId), { rpm, rpd, api_name: apiName });
+};
+
+export const seedModelLimitsFull = async (
+  redis: Redis,
+  modelId: string,
+  rpm: number,
+  rpd: number,
+  type: 'lite' | 'hard',
+  fallbackPriority: number
+) => {
+  const apiName = DEFAULT_MODEL_API_NAMES[modelId] ?? modelId;
+  await redis.sadd(redisKeys.modelIds(), modelId);
+  await redis.hset(redisKeys.modelLimits(modelId), {
+    rpm,
+    rpd,
+    api_name: apiName,
+    type,
+    fallback_priority: fallbackPriority.toString(),
+  });
 };
 
 export const configureMockGemini = async (config: {
@@ -161,6 +242,7 @@ export const waitForProcessedModel = async (
   return result.used_model ?? result.processed_model ?? null;
 };
 
+// TODO: migrate to "testcontainers" package
 export const startCompose = async () => {
   if (!usingCompose) return;
 

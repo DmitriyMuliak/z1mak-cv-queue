@@ -43,6 +43,24 @@ export class HttpMockGeminiProvider {
     return data.text;
   }
 
+  async *generateStream(payload: {
+    model: string;
+    cvDescription: string;
+    jobDescription?: string;
+    mode: Mode;
+    locale: string;
+  }): AsyncIterableIterator<string> {
+    // For simplicity in mock, we fetch the whole text but yield it in chunks (words)
+    // to simulate real streaming behavior for the consumer.
+    const text = await this.generate(payload);
+    const chunks = text.split(' ');
+    for (let i = 0; i < chunks.length; i++) {
+      yield chunks[i] + (i === chunks.length - 1 ? '' : ' ');
+      // small delay to make it realistic
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
   isRetryableError(error: unknown): boolean {
     const status = extractStatus(error);
     if (status !== undefined && status >= 400 && status < 500) return false;
