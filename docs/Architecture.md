@@ -282,9 +282,9 @@ API & Worker:
 
 # 📄 15. **Documentation**
 
-| File                                | Purpose                      |
-| :---------------------------------- | :--------------------------- |
-| **README.md**                       | User-facing overview, usage  |
-| **Architecture.md**                 | Deep internal specification  |
-| **RateLimits.md**                   | Detailed limit logic         |
-| **FrontendStreamingIntegration.md** | Guide for Next.js developers |
+| File                | Purpose                     |
+| :------------------ | :-------------------------- |
+| **README.md**       | User-facing overview, usage |
+| **Architecture.md** | Deep internal specification |
+| **RateLimits.md**   | Detailed limit logic        |
+| **Worker.md**       | Flow diagram                |
