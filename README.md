@@ -216,6 +216,19 @@ Returns: `{ status, data?, error?, finished_at, used_model? }`.
 Updates worker concurrency without deployment (requires internal API key):
 `{ "queue": "lite" | "hard", "concurrency": 12 }`
 
+## POST `/admin/update-models-limits`
+
+Update models limits from DB (requires internal API key):
+
+## GET `/health`
+
+Checks:
+
+- Redis access
+- Queue paused
+- Worker alive
+- Memory/CPU usage
+
 ---
 
 # ⚙️ 6. Worker Logic (High Level)
@@ -255,6 +268,28 @@ Updates `model:{name}:limits` from DB.
 - Queue readiness + worker counts.
 - Memory/CPU/Uptime metrics.
 
+```json
+{
+  "db": "ok",
+  "redis": "ok",
+  "queue": "ok",
+  "workers": 3,
+  "uptime": 551232,
+  "cpu": "normal",
+  "memory": "normal",
+  "queueState": { "ready": "queueReady", "paused": "litePaused || hardPaused" },
+  "db_pool": {
+    "total": 10,
+    "waiting": 3
+  },
+  "metrics": {
+    "ram_rss_mb": 120,
+    "cpu_load_1m": 2,
+    "uptime_s": 53223123
+  }
+}
+```
+
 ---
 
 # 📴 9. Graceful Shutdown
@@ -262,7 +297,8 @@ Updates `model:{name}:limits` from DB.
 1. Stop accepting new jobs.
 2. Finish active work.
 3. Close BullMQ Queues and Redis connections.
-4. Exit process.
+4. Wait active sync DB job and close DB connection.
+5. Exit process.
 
 ---
 
@@ -289,5 +325,29 @@ root
 │   ├── RateLimits.md
 │   ├── TESTS.md
 │   └── Worker.md
+├── supabase
+│   ├── config.toml
+│   ├── helpers
+│   ├── migrations
+│   └── seed.sql
+├── test
+│   ├── integration
+│   ├── mock
+│   ├── unit
+│   └── utils
+├── scripts
+│   ├── createAdminUser.ts
+│   └── makeAdminExisting.ts
+├── README.md
+├── Dockerfile
+├── docker-compose.develop.yml
+├── docker-compose.test.yml
+├── eslint.config.cjs
+├── fly.redis.toml
+├── fly.toml
+├── package.json
+├── tsconfig.build.json
+├── tsconfig.json
+└── vitest.config.ts
 ...
 ```

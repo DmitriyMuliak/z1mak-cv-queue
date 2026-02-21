@@ -205,34 +205,78 @@ Cron ($\text{30 seconds}$):
 3. batch insert $\rightarrow$ DB ($\text{upsert}$).
 4. delete Redis keys (shorten TTL).
 
+Guarantees:
+
+- DB never overloaded ($\text{batch writes}$)
+- Redis remains light
+- no duplicates ($\text{idempotent writes}$)
+
 ---
 
 # 🧨 11. **Failure Modes**
 
-- Redis down: System becomes permissive.
-- Worker crash: Job requeued, lock auto-expires.
-- API crash: Stateless, locks unaffected.
-- Final Job Failed: Model tokens are refunded; status=failed is recorded.
+| Failure              | Behaviour                                                                                  |
+| :------------------- | :----------------------------------------------------------------------------------------- |
+| Redis down           | System becomes permissive auto-recovery                                                    |
+| Worker crash         | Job requeued, lock auto-expires                                                            |
+| API crash            | Stateless, locks unaffected                                                                |
+| DB temporary down    | Redis retains data until next sync                                                         |
+| Cron failure         | Next run resumes processing                                                                |
+| **Final Job Failed** | **Model tokens are refunded; status=failed is recorded**                                   |
+| Stale jobs           | Cron `expireStaleJobs` removes waiting/locks/RPD, sets $\text{error\_code}=\text{expired}$ |
 
 ---
 
 # 📈 12. **Scalability Roadmap**
 
-- 1–5k RPS: Single Redis, 2 queues.
-- 5–20k RPS: Single Redis, N Workers.
-- 20k+ RPS: Redis Cluster / Dragonfly.
+| Stage     | Architecture                                       |
+| :-------- | :------------------------------------------------- |
+| 1–5k RPS  | Single Redis, 2 queues (lite/hard)                 |
+| 5–20k RPS | Single Redis, 2 BullMQ Queues, N Workers           |
+| 20k+ RPS  | Single Redis (bigger) or Dragonfly, queue sharding |
 
 ---
 
 # 🩺 13. **Health Checks**
 
-`GET /health` reports: Redis, DB connectivity, BullMQ readiness, Memory & CPU.
+`GET /health` reports:
+
+- Redis connectivity
+- DB connectivity (SELECT 1)
+- BullMQ queue readiness + paused state
+- DB pool metrics (total/waiting)
+- Memory & CPU
+- Uptime
+
+## 13.1 **Operational Limits & Ratios**
+
+**Worker concurrency defaults**
+
+- `DEFAULT_CONCURRENCY`: `lite=8`, `hard=3` (total 11). Overrides can be applied via Redis config.
+
+**DB pool limits**
+
+- `max=10` (kept below Supabase hard limit 15)
+- `idleTimeoutMillis=30000`
+- `allowExitOnIdle=true`
+- `connectionTimeoutMillis=5000`
+
+**Health check timing chain**
+
+- `connectionTimeoutMillis (5s) < /health REQUEST_TIMEOUT (7s) < Fly http_checks timeout (8s)`
+- Fly http_checks `interval=20s` should stay higher than the timeout; `grace_period=20s` allows cold start warm-up
 
 ---
 
 # 💀 14. **Graceful Shutdown**
 
-API & Worker: Stop accepting new jobs, finish active work, close connections, exit.
+API & Worker:
+
+1.  Stop accepting new jobs
+2.  Finish active work
+3.  Close queue
+4.  Close Redis
+5.  Exit cleanly
 
 ---
 
