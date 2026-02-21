@@ -160,8 +160,8 @@ export async function handleActiveStreaming(
   while (!reply.raw.destroyed) {
     const next = await redis.xread('BLOCK', 10000, 'STREAMS', streamKey, lastId);
     if (reply.raw.destroyed) break;
-
-    if (!next?.length) {
+    const hasData = next && next.length > 0 && next[0][1].length > 0;
+    if (!hasData) {
       const stillAlive = await redis.exists(streamKey);
       if (stillAlive === 0) {
         reply.raw.end();
