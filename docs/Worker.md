@@ -19,18 +19,18 @@ stateDiagram
   SkipLimits --> ExecuteJob
 
   ExecuteJob --> Streaming? : job.data.streaming === true
-  
+
   Streaming? --> StreamExecution : yes
   StreamExecution --> PublishToRedis : for each chunk
   PublishToRedis --> StreamExecution
   StreamExecution --> WriteSuccess : stream done
-  
+
   Streaming? --> StandardExecution : no
   StandardExecution --> WriteSuccess : result received
 
   ExecuteJob --> ProviderError : throw error
   ProviderError --> RefundTokens
-  
+
   WriteSuccess --> SaveResult
   SaveResult --> Cleanup
   Cleanup --> [*]
@@ -40,7 +40,9 @@ stateDiagram
 ```
 
 ## Streaming Logic in Worker
+
 If the `streaming` flag is set to `true` in the job data:
+
 1. The worker uses `ModelProviderService.executeStream`.
 2. Each yielded chunk is published to Redis Pub/Sub channel `job:stream:{jobId}` as a JSON string: `{"type": "chunk", "data": "..."}`.
 3. Once the stream ends, a `{"type": "done"}` message is published.

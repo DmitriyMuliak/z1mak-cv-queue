@@ -132,11 +132,75 @@ export const postStreamJob = async (body: RunBody) => {
     'x-test-role': 'authenticated',
     'x-test-user-role': body.role,
   };
-  return fetch(`${API_URL}/resume/analyze-stream`, {
+  return fetch(`${API_URL}/resume/analyze`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, streaming: true }),
   });
+};
+
+export const connectToStream = async (
+  jobId: string,
+  userId: string,
+  role: string,
+  lastEventId?: string
+) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-internal-api-key': INTERNAL_KEY,
+    'x-test-user': userId,
+    'x-test-role': 'authenticated',
+    'x-test-user-role': role,
+  };
+  return fetch(`${API_URL}/resume/${jobId}/result-stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ lastEventId }),
+  });
+};
+
+export const sseToArray = async (response: Response): Promise<any[]> => {
+  const reader = response.body?.getReader();
+  if (!reader) return [];
+  const decoder = new TextDecoder();
+  const result: any[] = [];
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          if (!part.trim()) continue;
+
+          const lines = part.split('\n');
+          let eventData: any = null;
+          let eventName = '';
+          let eventId = '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const rawData = line.substring(6).trim();
+              eventData = rawData ? JSON.parse(rawData) : {};
+            } else if (line.startsWith('event: ')) {
+              eventName = line.substring(7).trim();
+            } else if (line.startsWith('id: ')) {
+              eventId = line.substring(4).trim();
+            }
+          }
+          result.push({ id: eventId, event: eventName, data: eventData });
+        }
+      }
+      if (done) break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return result;
 };
 
 export const ndjsonToArray = async (response: Response): Promise<any[]> => {

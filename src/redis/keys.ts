@@ -8,6 +8,7 @@ export const redisKeys = {
   userActiveJobs: (userId: string) => `user:${userId}:active_jobs`,
   jobMeta: (jobId: string) => `job:${jobId}:meta`,
   jobResult: (jobId: string) => `job:${jobId}:result`,
+  jobStream: (jobId: string) => `job:stream:${jobId}`,
   userLimits: (userId: string) => `user:${userId}:limits`,
   queueWaitingModel: (model: string) => `queue:waiting:${model}`,
   workerConcurrency: (type: 'hard' | 'lite') => `config:worker:${type}:concurrency`,

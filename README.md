@@ -4,7 +4,7 @@
 
 It processes jobs considering:
 
-- **Real-time Streaming** (NDJSON) — low latency UX
+- **Real-time Streaming** (SSE) — resilient low-latency UX
 - **Model Limits** (RPM / RPD) — enforced by the worker
 - **User Limits** (daily RPD) + **Concurrency** — enforced by the API via Lua
 - **Model Backpressure** (`queue:waiting` + dynamic `maxQueueLength`)
@@ -55,7 +55,7 @@ flowchart LR
     QueueHard --> Worker
     Worker --> Limits[Model RPM/RPD]
     Limits --> Redis
-    Worker --> STREAM[Redis Pub/Sub\nStreaming]
+    Worker --> STREAM[Redis Streams\nStreaming]
     STREAM --> API
     Worker --> Result[Redis Job Result]
 
@@ -76,11 +76,8 @@ flowchart LR
   - Performs a soft model RPD pre-check.
 - **Backpressure**: Checks if `queue:waiting:{model}` exceeds dynamic `maxQueueLength` (\~30 min SLA).
 - **Enqueueing**:
-  - **Standard (`/analyze`)**: Enqueues job and returns `{ jobId }` immediately. Client polls `/result`.
-  - **Streaming (`/analyze-stream`)**:
-    - API subscribes to Redis Pub/Sub channel `job:stream:{jobId}`.
-    - API opens an HTTP connection with `Transfer-Encoding: chunked`.
-    - API enqueues job with `streaming: true`.
+  - **Standard (`/analyze`)**: Enqueues job and returns `{ jobId }` immediately. Client polls `/result` or connects to стрім.
+  - **Streaming Mode**: To use streaming, client sends `"streaming": true` in `/analyze` payload and connects to `/:id/result-stream`.
 
 ### **2) Worker Execution**
 
@@ -88,11 +85,11 @@ flowchart LR
 - **Execution**:
   - **Standard**: Calls `modelProvider.execute()`, waits for full result.
   - **Streaming**: Calls `modelProvider.executeStream()`. Each chunk received from AI is:
-    1. Published to Redis Pub/Sub channel `job:stream:{jobId}`.
+    1. Added to Redis Stream `job:stream:{jobId}` via `XADD`.
     2. Appended to a local buffer in the worker to form the full result.
 - **Completion**:
-  - On success: Worker publishes `{"type":"done"}`, writes full result to Redis `job:{id}:result`, and updates metadata.
-  - On failure: Worker publishes `{"type":"error"}`, triggers token refund (if AI wasn't reached), and marks status as `failed`.
+  - On success: Worker adds `{"type":"done"}` to the stream, writes full result to Redis `job:{id}:result`, and updates metadata.
+  - On failure: Worker adds `{"type":"error"}` to the stream, triggers token refund (if AI wasn't reached), and marks status as `failed`.
 
 ### **3) DB Synchronization (Cron every 30s)**
 
@@ -168,6 +165,14 @@ job:{id}:result
   TTL: ~24h at creation, then 5m after DB sync
 ```
 
+### Job Stream (STREAM)
+
+```
+job:stream:{id}
+  Entry: { "data": "JSON_STRING" }
+  TTL: 15m (active) / 5m (completed)
+```
+
 ---
 
 # 🔥 4. Lua Scripts (Summary)
@@ -186,14 +191,17 @@ This service has an HTTP API for integration with Next.js / other backends.
 
 ## POST `/resume/analyze`
 
-Starts the analysis (standard polling mode). Returns `{ jobId }`.
+Starts the analysis. Returns `{ jobId }`.
+Payload: `{ "payload": { ... }, "streaming": boolean }`.
 
-## POST `/resume/analyze-stream`
+## POST `/resume/:id/result-stream`
 
-Starts the analysis in **streaming mode** (NDJSON).
+Universal entry point for **resilient streaming** (SSE).
 
-- API subscribes to Redis Pub/Sub `job:stream:{jobId}`.
-- Streams chunks using `Transfer-Encoding: chunked`.
+- **Adaptive Polling**: Closes immediately if job is in queue (`status: queued`) to save server resources.
+- **Snapshot Logic**: Sends full accumulated history for new or F5 connections.
+- **Delta Resumption**: Supports `lastEventId` in request body to resume after disconnect.
+- **Hierarchical Fallback**: Checks Redis Result $\rightarrow$ Redis Meta $\rightarrow$ DB.
 
 ## GET `/resume/:id/status`
 
@@ -214,7 +222,7 @@ Updates worker concurrency without deployment (requires internal API key):
 
 - Consume model RPM/RPD (Lua `consumeExecutionLimits`).
 - Resolve provider model name from Redis `model:{id}:limits.api_name`.
-- **Streaming Detection**: If `job.data.streaming === true`, use `executeStream()` and PUBLISH chunks to Redis.
+- **Streaming Detection**: If `job.data.streaming === true`, use `executeStream()` and add chunks to Redis Stream.
 - Retryable errors (500/503/504, etc.) $\rightarrow$ BullMQ retry/delay (`attempts=2`).
 - Non-retryable errors $\rightarrow$ `UnrecoverableError` $\rightarrow$ failed, token refund, lock release.
 

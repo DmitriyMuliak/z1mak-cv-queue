@@ -4,16 +4,16 @@ This service is a separate Docker module, consisting of:
 
 | Component                    | Purpose                                                                                                                                                                                              |
 | :--------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure. Supports **NDJSON Streaming** via Redis Pub/Sub.                   |
+| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure. Supports **SSE Streaming** via Redis Streams.                      |
 | **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                                                                                                  |
-| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic. For streaming jobs, publishes chunks to Redis.                                                                 |
-| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks. Used for **Pub/Sub** messaging during streaming.                                                         |
+| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic. For streaming jobs, adds chunks to Redis Streams.                                                              |
+| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks. Used for **Streams** messaging during streaming.                                                          |
 | **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; meta/result keys have 24h TTL, shortened to 5 minutes after sync; meta-only older than grace are persisted as failed |
 | **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                                                                                     |
 
 The service guarantees:
 
-- **Real-time UX with Streaming (NDJSON)**
+- **Real-time UX with Streaming (SSE over Fetch)**
 - **Concurrency strictly within limits (per-user)**
 - **Isolated high-performance API**
 - **Atomic user RPD + concurrency in Redis (Lua)**
@@ -41,9 +41,9 @@ flowchart TD
     W1 --> P[Worker Pipeline]
     W2 --> P
     W3 --> P
-    P --> STREAM[Redis Pub/Sub\nStreaming Chunks]
+    P --> STREAM[Redis Streams\nStreaming Chunks]
     STREAM --> B
-    B -->|NDJSON Response| A
+    B -->|SSE Response| A
     P --> R2[Redis Job Result]
     R2 --> CRON[DB Sync Cron\nEvery 30 Seconds]
     CRON --> DB[(Persistent DB)]
@@ -55,7 +55,7 @@ flowchart TD
 
 | Feature                           | Guarantee                                                                                             |
 | :-------------------------------- | :---------------------------------------------------------------------------------------------------- |
-| **Real-time Streaming**           | Low latency partial results via NDJSON over HTTP Chunked encoding.                                     |
+| **Real-time Streaming**           | Low latency partial results via SSE (Server-Sent Events) over HTTP.                                   |
 | **Global Model Limits (RPM/RPD)** | Models are not overloaded (consumed in worker; RPM $\rightarrow$ delayed, RPD $\rightarrow$ fail)     |
 | **User Daily RPD (Fixed Window)** | API acquires token via Lua (pre-enqueue)                                                              |
 | **User Concurrency (ZSET TTL)**   | API maintains active jobs with $\text{TTL} \sim 31 \text{ min}$, cleans up zombies in Lua and worker  |
@@ -107,7 +107,7 @@ flowchart TD
 
     A[Worker Start] --> B(Call AI Service)
 
-    B -->|Streaming Enabled| STREAM[Publish chunks to Redis Pub/Sub]
+    B -->|Streaming Enabled| STREAM[Add chunks to Redis Stream]
     STREAM --> B
     B -->|Success| C[Write Completed Result]
     C --> D[Remove Lock]
@@ -138,29 +138,37 @@ flowchart TD
 # 🗄️ 7. **Redis Schema (Detailed)**
 
 ## 7.1 Redis Data Types Usage
-| Type | Usage in Project | Why? |
-| :--- | :--- | :--- |
-| **SET** | `models:ids` | Unordered collection of unique model IDs. Best for simple membership checks. |
-| **ZSET** | `user:{id}:active_jobs` | Sorted collection of Job IDs where **score = expiry timestamp**. Allows O(log N) insertion and efficient cleanup of expired items via `ZREMRANGEBYSCORE`. |
-| **HASH** | `job:{id}:meta`, `model:{id}:limits` | Stores multiple fields for a single object. Efficient for reading/writing specific attributes. |
-| **STRING** | `user:{id}:rpd:...`, `queue:waiting:...` | Simple counters or single values. Supports atomic `INCRBY` / `DECR`. |
+
+| Type       | Usage in Project                         | Why?                                                             |
+| :--------- | :--------------------------------------- | :--------------------------------------------------------------- |
+| **SET**    | `models:ids`                             | Unordered collection of unique model IDs.                        |
+| **ZSET**   | `user:{id}:active_jobs`                  | Sorted collection of Job IDs where **score = expiry timestamp**. |
+| **HASH**   | `job:{id}:meta`, `model:{id}:limits`     | Stores multiple fields for a single object.                      |
+| **STRING** | `user:{id}:rpd:...`, `queue:waiting:...` | Simple counters or single values.                                |
+| **STREAM** | `job:stream:{id}`                        | Buffer for real-time AI chunks with history.                     |
 
 ## 7.2 Model Limits (HASH)
+
 `model:{name}:limits`: `rpm`, `rpd`, `api_name`, `updated_at`.
 
 ## 7.3 Model Catalog (SET)
+
 `models:ids` = list of model ids loaded from DB.
 
 ## 7.4 Per-user RPD (STRING with TTL)
+
 `user:{id}:rpd:{lite|hard}:{YYYY-MM-DD}` = counter (string).
 
 ## 7.5 Queue Waiting per Model (STRING)
+
 `queue:waiting:{model}` = current enqueued/waiting count.
 
 ## 7.6 Concurrency Locks (ZSET)
+
 `user:{id}:active_jobs`: member: jobId, score: expiry_timestamp (ms).
 
 ## 7.7 Job Metadata (HASH)
+
 `job:{id}:meta`: `user_id`, `model`, `created_at`, `status`, `streaming`, etc.
 
 ---
@@ -180,7 +188,7 @@ flowchart TD
 1.  Marks job as "in_progress" (`job:meta`).
 2.  Resolves provider model name from `model:{id}:limits.api_name`.
 3.  Calls **`ModelProviderService.execute`** (or `executeStream` if `streaming: true`).
-4.  If **streaming** $\rightarrow$ publishes chunks to Redis `job:stream:{jobId}` and aggregates full text.
+4.  If **streaming** $\rightarrow$ adds chunks to Redis Stream `job:stream:{jobId}` and aggregates full text.
 5.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
 6.  If **retryable** $\rightarrow$ throws exception, **BullMQ** performs backoff retry.
 7.  If **non-retryable** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed`.
@@ -191,6 +199,7 @@ flowchart TD
 # 📦 10. **DB Sync Architecture**
 
 Cron ($\text{30 seconds}$):
+
 1. `SCAN job:*:result` in batches.
 2. merge($\text{meta} + \text{result}$).
 3. batch insert $\rightarrow$ DB ($\text{upsert}$).
@@ -229,9 +238,9 @@ API & Worker: Stop accepting new jobs, finish active work, close connections, ex
 
 # 📄 15. **Documentation**
 
-| File | Purpose |
-| :--- | :--- |
-| **README.md** | User-facing overview, usage |
-| **Architecture.md** | Deep internal specification |
-| **RateLimits.md** | Detailed limit logic |
+| File                                | Purpose                      |
+| :---------------------------------- | :--------------------------- |
+| **README.md**                       | User-facing overview, usage  |
+| **Architecture.md**                 | Deep internal specification  |
+| **RateLimits.md**                   | Detailed limit logic         |
 | **FrontendStreamingIntegration.md** | Guide for Next.js developers |
