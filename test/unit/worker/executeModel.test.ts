@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createExecuteModel } from '../../../src/worker/executeModel';
 import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 import { redisKeys } from '../../../src/redis/keys';
-import { STREAM_TTL_SAFETY, STREAM_TTL_COMPLETED } from '../../../src/constants/jobKeys';
 
 describe('executeModel with streaming (Behavioral)', () => {
   let redisDriver: RedisBehavioralDriver;
