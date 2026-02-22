@@ -17,6 +17,7 @@ type EnqueueArgs = {
   role: 'user' | 'admin';
   modeType: ModeType;
   createdAtMs: number;
+  streaming?: boolean;
 };
 
 export const enqueueJob = async ({
@@ -31,6 +32,7 @@ export const enqueueJob = async ({
   role,
   modeType,
   createdAtMs,
+  streaming = false,
 }: EnqueueArgs) => {
   try {
     const metaKey = redisKeys.jobMeta(jobId);
@@ -45,6 +47,7 @@ export const enqueueJob = async ({
           payload: body.payload,
           role,
           modeType,
+          streaming,
         },
         { jobId }
       ),
@@ -58,6 +61,7 @@ export const enqueueJob = async ({
           status: 'queued',
           attempts: 0,
           mode_type: modeType,
+          streaming: String(streaming),
         })
         .expire(metaKey, JOB_KEY_TTL_SECONDS)
         .exec(),

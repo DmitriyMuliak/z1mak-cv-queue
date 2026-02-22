@@ -20,6 +20,7 @@ export const RunAiJobBodySchema = Type.Object(
       },
       { additionalProperties: false }
     ),
+    streaming: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false }
 );
@@ -46,7 +47,12 @@ export const RecentUserQuerySchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const StreamJobBodySchema = Type.Object({
+  lastEventId: Type.Optional(Type.String()),
+});
+
 export type RunAiJobBody = Static<typeof RunAiJobBodySchema>;
 export type JobIdParams = Static<typeof JobIdParamsSchema>;
 export type UserIdParams = Static<typeof UserIdParamsSchema>;
 export type RecentUserQuery = Static<typeof RecentUserQuerySchema>;
+export type StreamJobBody = Static<typeof StreamJobBodySchema>;

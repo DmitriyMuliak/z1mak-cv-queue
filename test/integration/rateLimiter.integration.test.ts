@@ -58,12 +58,12 @@ describe('Rate limiter (model RPM/RPD)', () => {
     // await redis.publish(redisChannels.configUpdate, 'reload');
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
     await waitForApi();
-  }, 120_000);
+  }, 60_000);
 
   afterAll(async () => {
     await redis?.quit();
     await stopCompose();
-  }, 120_000);
+  }, 60_000);
 
   beforeEach(async () => {
     await redis.flushall();

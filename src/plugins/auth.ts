@@ -42,10 +42,7 @@ export default fp(async (fastify) => {
     },
   });
 
-  fastify.decorate(
-    'authenticate',
-    async function (request: FastifyRequest) {
-      await request.jwtVerify();
-    }
-  );
+  fastify.decorate('authenticate', async function (request: FastifyRequest) {
+    await request.jwtVerify();
+  });
 });

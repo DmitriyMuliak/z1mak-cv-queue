@@ -13,6 +13,7 @@ type AiJobData = {
   payload: RunAiJobBody['payload'];
   role: 'user' | 'admin';
   modeType: ModeType;
+  streaming?: boolean;
 };
 
 export type QueueType = Queue<AiJobData, RedisJobResultHash, AiJobName>;

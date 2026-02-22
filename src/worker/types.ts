@@ -15,6 +15,7 @@ export interface JobPayload {
   };
   role: 'user' | 'admin';
   modeType: ModeType;
+  streaming?: boolean;
 }
 
 export type ProviderResult = {

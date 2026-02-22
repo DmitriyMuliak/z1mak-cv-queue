@@ -4,15 +4,16 @@ This service is a separate Docker module, consisting of:
 
 | Component                    | Purpose                                                                                                                                                                                              |
 | :--------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure                                                                     |
+| **Fastify API Server**       | Accepts requests to launch an AI job, selects model + fallback chain, calls Lua for user RPD + concurrency, applies backpressure. Supports **SSE Streaming** via Redis Streams.                      |
 | **BullMQ Queue (lite/hard)** | Separate queues for lite/hard modes                                                                                                                                                                  |
-| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic                                                                                                                 |
-| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks                                                                                                            |
+| **Worker Pool**              | Executes tasks, interacts with AI, applies model RPM/RPD limits, manages retry logic. For streaming jobs, adds chunks to Redis Streams.                                                              |
+| **Redis**                    | Temporary storage for job metadata, RPD/RPM counters, waiting counters, concurrency locks. Used for **Streams** messaging during streaming.                                                          |
 | **DB Sync Cron**             | SCAN + batch transfer of completed jobs from Redis $\rightarrow$ persistent DB; meta/result keys have 24h TTL, shortened to 5 minutes after sync; meta-only older than grace are persisted as failed |
 | **Cleanup Cron**             | Removes orphan locks / stale waiting/delayed jobs, refunds limits (active jobs handled by BullMQ stalled checks)                                                                                     |
 
 The service guarantees:
 
+- **Real-time UX with Streaming (SSE over Fetch)**
 - **Concurrency strictly within limits (per-user)**
 - **Isolated high-performance API**
 - **Atomic user RPD + concurrency in Redis (Lua)**
@@ -40,6 +41,9 @@ flowchart TD
     W1 --> P[Worker Pipeline]
     W2 --> P
     W3 --> P
+    P --> STREAM[Redis Streams\nStreaming Chunks]
+    STREAM --> B
+    B -->|SSE Response| A
     P --> R2[Redis Job Result]
     R2 --> CRON[DB Sync Cron\nEvery 30 Seconds]
     CRON --> DB[(Persistent DB)]
@@ -51,6 +55,7 @@ flowchart TD
 
 | Feature                           | Guarantee                                                                                             |
 | :-------------------------------- | :---------------------------------------------------------------------------------------------------- |
+| **Real-time Streaming**           | Low latency partial results via SSE (Server-Sent Events) over HTTP.                                   |
 | **Global Model Limits (RPM/RPD)** | Models are not overloaded (consumed in worker; RPM $\rightarrow$ delayed, RPD $\rightarrow$ fail)     |
 | **User Daily RPD (Fixed Window)** | API acquires token via Lua (pre-enqueue)                                                              |
 | **User Concurrency (ZSET TTL)**   | API maintains active jobs with $\text{TTL} \sim 31 \text{ min}$, cleans up zombies in Lua and worker  |
@@ -102,6 +107,8 @@ flowchart TD
 
     A[Worker Start] --> B(Call AI Service)
 
+    B -->|Streaming Enabled| STREAM[Add chunks to Redis Stream]
+    STREAM --> B
     B -->|Success| C[Write Completed Result]
     C --> D[Remove Lock]
     D --> E_end[Job Done]
@@ -123,100 +130,69 @@ flowchart TD
 
 # 🕒 6. **Timestamp Policy**
 
-All timestamps are UTC
-
-Used in Locks, Job Results, Per-User RPD
+- All timestamps are UTC. Used in Locks, Job Results, Per-User RPD.
+- **Gemini RPD Limits**: Note that Gemini API limits typically reset at **12:00 AM Pacific Time (PT)**. Our system uses UTC for internal tracking, but daily resets for Gemini-based models should account for this offset if strictly aligning with provider windows.
 
 ---
 
 # 🗄️ 7. **Redis Schema (Detailed)**
 
-## 7.1 Model Limits (HASH)
+## 7.1 Redis Data Types Usage
 
-```
-model:{name}:limits
-  rpm
-  rpd
-  api_name
-  updated_at
-```
+| Type       | Usage in Project                         | Why?                                                             |
+| :--------- | :--------------------------------------- | :--------------------------------------------------------------- |
+| **SET**    | `models:ids`                             | Unordered collection of unique model IDs.                        |
+| **ZSET**   | `user:{id}:active_jobs`                  | Sorted collection of Job IDs where **score = expiry timestamp**. |
+| **HASH**   | `job:{id}:meta`, `model:{id}:limits`     | Stores multiple fields for a single object.                      |
+| **STRING** | `user:{id}:rpd:...`, `queue:waiting:...` | Simple counters or single values.                                |
+| **STREAM** | `job:stream:{id}`                        | Buffer for real-time AI chunks with history.                     |
 
-## 7.2 Model Catalog (SET)
+## 7.2 Model Limits (HASH)
 
-```
-models:ids = list of model ids loaded from DB
-```
+`model:{name}:limits`: `rpm`, `rpd`, `api_name`, `updated_at`.
 
-## 7.3 Per-user RPD (STRING with TTL)
+## 7.3 Model Catalog (SET)
 
-```
-user:{id}:rpd:{lite|hard}:{YYYY-MM-DD} = counter (string)
-```
+`models:ids` = list of model ids loaded from DB.
 
-## 7.4 Queue Waiting per Model (STRING)
+## 7.4 Per-user RPD (STRING with TTL)
 
-```
-queue:waiting:{model} = current enqueued/waiting count
-```
+`user:{id}:rpd:{lite|hard}:{YYYY-MM-DD}` = counter (string).
 
-## 7.5 Concurrency Locks (ZSET)
+## 7.5 Queue Waiting per Model (STRING)
 
-```
-user:{id}:active_jobs
-  member: jobId
-  score: expiry_timestamp (ms)
-```
+`queue:waiting:{model}` = current enqueued/waiting count.
 
-Self-cleaning on every write.
+## 7.6 Concurrency Locks (ZSET)
 
-## 7.6 Job Metadata (HASH)
+`user:{id}:active_jobs`: member: jobId, score: expiry_timestamp (ms).
 
-```
-job:{id}:meta
-  user_id
-  model
-  created_at
-  updated_at
-  attempts
-  mode_type
-  requested_model
-  processed_model
-  status
-  TTL: ~24h at creation, shortened to ~5m after DB sync
-```
+## 7.7 Job Metadata (HASH)
 
-## 7.7 Job Result (HASH)
-
-```
-job:{id}:result
-  status
-  error
-  error_code
-  finished_at
-  data (JSON string)
-  used_model
-  synced_at (after DB sync)
-  TTL: ~24h at creation, shortened to ~5m after DB sync
-```
+`job:{id}:meta`: `user_id`, `model`, `created_at`, `status`, `streaming`, etc.
 
 ---
 
 # 🧠 8. **Lua Scripts (Atomic Enforcement, Summary)**
 
-- `combinedCheckAndAcquire` (API): cleans up zombie locks, checks user RPD + concurrency, sets lock in ZSET, increments user RPD, performs a model RPD pre-check (without consumption); returns code (OK / CONCURRENCY / USER_RPD / MODEL_RPD).
-- `consumeExecutionLimits` (Worker): atomically checks model RPM/RPD and (optionally) user RPD; on RPM overage, returns code for delay; on RPD overage, returns code for fail.
+- `combinedCheckAndAcquire` (API): Cleans up expired zombie locks in ZSET, checks user concurrency, validates/increments user RPD, and performs a model RPD pre-check. Returns status codes: `OK`, `CONCURRENCY_LIMIT_EXCEEDED`, `USER_RPD_EXCEEDED`, `MODEL_RPD_EXCEEDED`.
+- `consumeExecutionLimits` (Worker): Atomically validates and increments model RPM and RPD counters.
+- `returnTokensAtomic` (Worker/Cleanup): Atomically refunds (decrements) model RPM, model RPD, and (optionally) user RPD counters while ensuring they never drop below zero.
+- `expireStaleJob` (Cleanup Cron): Performs atomic cleanup of a job: decrements model waiting count, removes user concurrency lock, decrements user RPD, and marks job meta/result as `failed` with `expired` error code.
+- `decrAndClampToZero` (Utility): Safely decrements a numeric key while ensuring it never goes below zero.
 
 ---
 
 # 🏗️ 9. **Worker Execution Pipeline** (Current)
 
 1.  Marks job as "in_progress" (`job:meta`).
-2.  Resolves provider model name from `model:{id}:limits.api_name` (loaded from DB at startup).
-3.  Calls **`ModelProviderService.execute`** (executes only one model).
-4.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
-5.  If **retryable (500/503/504/other temporary errors)** $\rightarrow$ throws exception, **BullMQ** performs backoff retry ($\text{attempts}=2$).
-6.  If **non-retryable (400/403/404/429/500 context-too-long)** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed` immediately.
-7.  **`queueEvents.on('failed')`** is triggered $\rightarrow$ **refunds tokens** (`returnTokens`) and records final `failed` status.
+2.  Resolves provider model name from `model:{id}:limits.api_name`.
+3.  Calls **`ModelProviderService.execute`** (or `executeStream` if `streaming: true`).
+4.  If **streaming** $\rightarrow$ adds chunks to Redis Stream `job:stream:{jobId}` and aggregates full text.
+5.  If **success** $\rightarrow$ records result (`job:result`) and **removes concurrency lock**.
+6.  If **retryable** $\rightarrow$ throws exception, **BullMQ** performs backoff retry.
+7.  If **non-retryable** $\rightarrow$ `UnrecoverableError` $\rightarrow$ BullMQ sets `failed`.
+8.  **`queueEvents.on('failed')`** $\rightarrow$ **refunds tokens** and records final `failed` status.
 
 ---
 
@@ -224,10 +200,10 @@ job:{id}:result
 
 Cron ($\text{30 seconds}$):
 
-1.  `SCAN job:*:result` in batches ($\text{chunk } 200$)
-2.  merge($\text{meta} + \text{result}$)
-3.  batch insert $\rightarrow$ DB ($\text{upsert}$)
-4.  delete Redis keys
+1. `SCAN job:*:result` in batches.
+2. merge($\text{meta} + \text{result}$).
+3. batch insert $\rightarrow$ DB ($\text{upsert}$).
+4. delete Redis keys (shorten TTL).
 
 Guarantees:
 
@@ -253,14 +229,11 @@ Guarantees:
 
 # 📈 12. **Scalability Roadmap**
 
-| Stage      | Architecture                                       |
-| :--------- | :------------------------------------------------- |
-| 1–5k RPS   | Single Redis, 2 queues (lite/hard)                 |
-| 5–20k RPS  | Single Redis, 2 BullMQ Queues, N Workers           |
-| 20–50k RPS | Single Redis (bigger) or Dragonfly, queue sharding |
-| 50k+ RPS   | Dragonfly or Redis Cluster (optional)              |
-| 150k+ RPS  | Redis Cluster (true distributed limits)            |
-| 250k+ RPS  | Multi-region, geo-distributed, per-region shard    |
+| Stage     | Architecture                                       |
+| :-------- | :------------------------------------------------- |
+| 1–5k RPS  | Single Redis, 2 queues (lite/hard)                 |
+| 5–20k RPS | Single Redis, 2 BullMQ Queues, N Workers           |
+| 20k+ RPS  | Single Redis (bigger) or Dragonfly, queue sharding |
 
 ---
 
@@ -309,8 +282,9 @@ API & Worker:
 
 # 📄 15. **Documentation**
 
-| File                | Purpose                                        |
-| :------------------ | :--------------------------------------------- |
-| **README.md**       | User-facing overview, diagrams, usage          |
-| **Architecture.md** | Deep internal specification for developers     |
-| **RateLimits**      | Info about main logic related to queue/limits. |
+| File                | Purpose                     |
+| :------------------ | :-------------------------- |
+| **README.md**       | User-facing overview, usage |
+| **Architecture.md** | Deep internal specification |
+| **RateLimits.md**   | Detailed limit logic        |
+| **Worker.md**       | Flow diagram                |

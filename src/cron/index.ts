@@ -9,7 +9,7 @@ import { createExpireStaleJobs } from './expireStaleJobs';
 import { runWithLock } from './utils/runWithLock';
 
 const MODEL_RELOAD_MS = 5 * 60 * 1000;
-const DB_SYNC_MS = 30 * 1000;
+const DB_SYNC_MS = env.dbSyncIntervalMs;
 const ORPHAN_CLEAN_MS = 60 * 60 * 1000;
 const EXPIRE_CHECK_MS = 60 * 1000;
 const EXPIRE_SLA_MS = 30 * 60 * 1000; // 30 minutes SLA for queue wait/active

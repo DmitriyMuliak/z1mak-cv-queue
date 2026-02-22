@@ -24,7 +24,11 @@ export interface GeminiRequest {
 export class GeminiProvider {
   private client: GoogleGenAI;
 
-  constructor(apiKey = process.env.GEMINI_API_KEY) {
+  constructor(apiKey = process.env.GEMINI_API_KEY, client?: GoogleGenAI) {
+    if (client) {
+      this.client = client;
+      return;
+    }
     if (!apiKey) {
       throw new Error('Gemini API key is missing');
     }
@@ -72,6 +76,54 @@ export class GeminiProvider {
       const duration = Date.now() - started;
       // Basic metric: duration per request. In production this can be wired to real metrics sink.
       console.info(`[Gemini] model=${model} duration_ms=${duration}`);
+    }
+  }
+
+  async *generateStream({
+    model,
+    cvDescription,
+    jobDescription,
+    mode,
+    locale,
+  }: GeminiRequest): AsyncIterableIterator<string> {
+    const started = Date.now();
+    const promptSettings = buildPromptSettings({
+      cvDescription,
+      jobDescription,
+      options: { mode, locale },
+    });
+
+    const responseSchema = new SchemaService(mode).getGenAiSchema();
+
+    try {
+      const result = await this.client.models.generateContentStream({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: promptSettings.prompt }],
+          },
+        ],
+        config: {
+          systemInstruction: promptSettings.systemInstructions,
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseSchema,
+          safetySettings,
+        },
+      });
+
+      for await (const chunk of result) {
+        const text = chunk.text;
+        if (text) {
+          yield text;
+        }
+      }
+    } catch (error) {
+      throw normalizeGeminiError(error);
+    } finally {
+      const duration = Date.now() - started;
+      console.info(`[Gemini Stream] model=${model} duration_ms=${duration}`);
     }
   }
 

@@ -45,8 +45,17 @@ export class FakeRedis {
     this.hashes.set(key, existing);
   }
 
+  hget(key: string, field: string) {
+    return this.hashes.get(key)?.[field] ?? null;
+  }
+
   hgetall(key: string) {
     return this.hashes.get(key) ?? {};
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async publish(_channel: string, _message: string) {
+    return 0; // Fake it
   }
 
   del(...keys: string[]) {

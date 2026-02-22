@@ -7,7 +7,12 @@ services:
       context: .
       target: builder
     command:
-      ['node', '-r', './dist/test/mock/fastify/plugins/auth.js', 'dist/src/server/index.js']
+      [
+        'node',
+        '-r',
+        './dist/test/mock/fastify/plugins/auth.js',
+        'dist/src/server/index.js',
+      ]
     environment:
       PORT: '4000'
       REDIS_URL: 'redis://redis:6379'
@@ -17,8 +22,9 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_BASE_URL: 'http://mock-gemini:8080'
+      DB_SYNC_INTERVAL_MS: '2000'
     ports:
-      - '4000:4000'
+      - "${TEST_API_PORT:-4000}:4000"
     depends_on:
       - redis
       - db
@@ -43,6 +49,7 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_MOCK_URL: 'http://mock-gemini:8080'
+      DB_SYNC_INTERVAL_MS: '2000'
     depends_on:
       - redis
       - db
@@ -54,13 +61,13 @@ services:
       target: builder
     command: ['node', 'dist/test/mock/MockGeminiProvider/geminiServer.js']
     ports:
-      - '8080:8080'
+      - "${TEST_MOCK_GEMINI_PORT:-8080}:8080"
 
   redis:
     image: redis:7-alpine
     command: ['redis-server', '--save', '', '--appendonly', 'no']
     ports:
-      - '6379:6379'
+      - "${TEST_REDIS_PORT:-6379}:6379"
 
   db:
     image: postgres:16-alpine
@@ -69,4 +76,6 @@ services:
       POSTGRES_PASSWORD: 'postgres'
       POSTGRES_DB: 'postgres'
     ports:
-      - '5432:5432'
+      - "${TEST_DB_PORT:-54321}:5432"
+    volumes:
+      - ./test/database/migrations:/docker-entrypoint-initdb.d
