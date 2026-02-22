@@ -152,6 +152,7 @@ export async function handleActiveStreaming(
 
   // Active Streaming Logic
   const historyData = await streamHistory(jobId, redis, reply, lastEventId);
+
   if (historyData.isCompleted) return true;
 
   let lastId = historyData.lastId;
@@ -161,7 +162,8 @@ export async function handleActiveStreaming(
     const next = await redis.xread('BLOCK', 10000, 'STREAMS', streamKey, lastId);
     if (reply.raw.destroyed) break;
 
-    if (!next?.length) {
+    const hasData = next && next.length > 0 && next[0][1].length > 0;
+    if (!hasData) {
       const stillAlive = await redis.exists(streamKey);
       if (stillAlive === 0) {
         reply.raw.end();

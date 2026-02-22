@@ -1,75 +1,85 @@
 # Testing Strategy: Decoupling Tests from Implementation Details
 
-## 1. Поточна проблема
+## 1. Поточна проблема (Technical Debt)
 
-Наші тести (особливо юніт-тести роутів та інтеграційні тести) занадто багато знають про внутрішній устрій системи:
+Наші тести занадто глибоко інтегровані в деталі реалізації. Будь-яка зміна в інфраструктурі викликає "ефект доміно" у тестах.
 
-- Вони знають про формат відповіді Redis (`[[streamName, [[id, [fields]]]]]`).
-- Вони знають про конкретні Redis ID (`1-0`, `1-1`).
-- Вони вручну парсять сирі SSE-рядки.
+### Приклади "протікання":
+*   **Redis Structure Leak:** Тести знають, що `XREAD` повертає масив масивів `[stream, [[id, [field, val]]]]`.
+*   **HTTP Transport Leak:** Кожен тест вручну налаштовує заголовки авторизації та парсить SSE-рядки.
+*   **Brittle State Assertion:** Перевірка успіху через `.includes()` або пошук конкретних Redis ID (`1-0`).
 
-**Наслідок:** Будь-який внутрішній рефакторинг (наприклад, зміна бібліотеки Redis або перейменування поля в стрімі) ламає десятки тестів, хоча поведінка для кінцевого користувача не змінилася.
+## 2. Шар Абстракції (The Proposal)
 
-## 2. Best Practices для спрощення тестів
+Ми впроваджуємо три рівні абстракції, щоб зробити тести "сліпими" до реалізації.
 
-### A. Створення "Test Drivers" (Абстракція клієнта)
+### Шар А: Test Data Builders (Redis/DB)
+Замість ручного формування об'єктів для Redis, використовуємо білдери.
+*   **Мета:** Приховати структуру `ioredis` та `pg`.
+*   **Інструмент:** `RedisMockBuilder`.
 
-Замість того, щоб у кожному тесті робити `fastify.inject` та вручну обробляти результат, ми маємо створити обгортку, яка імітує поведінку реального фронтенд-клієнта.
+### Шар Б: Test Driver (API Client)
+Замість прямих викликів `fastify.inject`, використовуємо драйвер, який імітує поведінку Фронтенду.
+*   **Мета:** Приховати HTTP-заголовки, методи та SSE-парсинг.
+*   **Інструмент:** `ResumeTestDriver`.
 
-**Як це виглядає:**
-
-```typescript
-// Замість сирого ін'єкту:
-const client = new JobTestClient(fastify);
-const stream = await client.connectToStream(jobId);
-
-// Тест стає декларативним:
-expect(stream).toEmitEvent('snapshot', { status: 'completed' });
-```
-
-### B. Використання Custom Matchers (Domain Language)
-
-Vitest дозволяє створювати власні перевірки. Ми можемо приховати складність SSE-парсингу за ідіоматичними виразами.
-
-**Приклад:**
-`expect(response).toFinishSuccessfully()` замість перевірки `.some()` по масиву подій.
-
-### C. Перехід від Mocks до Fakes (Behavioral Mocking)
-
-Зараз ми мокаємо `redis.xread` так: `.mockResolvedValue([['key', [['1-0', ['data', '{...}']]]]])`. Це і є "знання реалізації".
-
-**Кращий підхід:** Створити `FakeRedisStream`, який має метод `.push(chunk)`. Тест просто додає дані в фейк, а роут їх вичитує. Тест не знає, що всередині масиви масивів.
+### Шар В: Semantic Assertions (Matchers)
+Використовуємо кастомні матчери для перевірки бізнес-результатів.
+*   **Мета:** Перейти від "масив містить рядок" до "стрім завершився успішно".
 
 ---
 
-## 3. План покращення (Action Plan)
+## 3. План дій (Action Plan)
 
-### 1. Уніфікація SSE-парсингу
+### Етап 1: Утиліти та Хелпери (Low Hanging Fruit)
+1.  **Створити `test/helpers/sse-parser.ts`**:
+    *   Перенести туди логіку `sseToArray`.
+    *   Додати типізацію для розпарсених подій.
+2.  **Створити `test/helpers/redis-mocks.ts`**:
+    *   Функція `mockStreamHistory(chunks)`: приймає масив текстів, повертає структуру для `xread`.
+    *   Функція `mockJobResult(data)`: формує Hash-структуру для `hgetall`.
 
-Винести `sseToArray` з інтеграційних тестів у спільну утиліту `test/helpers/sseParser.ts`. Всі тести мають використовувати лише її. Вона має повертати чітко типізовані об'єкти.
+### Етап 2: Рефакторинг Юніт-тестів (Routes)
+1.  **Створити `ResumeTestDriver`**:
+    ```typescript
+    const driver = new ResumeTestDriver(fastify);
+    const result = await driver.submitResume(payload);
+    const events = await driver.getStream(result.jobId);
+    ```
+2.  **Переписати `test/unit/resume/*.test.ts`**:
+    *   Видалити всі `fastify.inject` з тіла тестів.
+    *   Видалити всі `JSON.parse` з перевірок SSE.
 
-### 2. Створення Mock-Builder-ів
+### Етап 3: Рефакторинг Інтеграційних тестів
+1.  **Уніфікувати `rateTestUtils.ts`**:
+    *   Замінити розрізнені функції на єдиний `IntegrationTestClient`.
+    *   Приховати використання `INTERNAL_KEY` та тестових заголовків всередині клієнта.
+2.  **Behavioral Assertions**:
+    *   Замінити суворі перевірки Redis ID на перевірку "контенту" (напр. `expect(events).toIncludeText("excellent candidate")`).
 
-Замість ручного написання структур Redis, створити функції-помічники:
+### Етап 4: Кастомні матчери Vitest
+Додати в `vitest.config.ts` глобальні матчери:
+*   `expect(stream).toCompleteSuccessfully()`
+*   `expect(stream).toFailWithCode(code)`
+*   `expect(job).toBePersistedInDb()`
 
+## 4. Очікуваний результат
+
+Тести стануть декларативними документами, які описують **поведінку**, а не код. 
+
+**Було (Implementation-heavy):**
 ```typescript
-const history = buildRedisStreamHistory([
-  { type: 'chunk', content: 'Hello' },
-  { type: 'done' },
-]);
-mockRedis.xread.mockResolvedValue(history);
+const res = await fastify.inject({ method: 'POST', ... });
+const lines = res.body.split('\n');
+expect(lines[0]).toContain('event: snapshot');
+expect(JSON.parse(lines[0].substring(6)).status).toBe('completed');
 ```
 
-### 3. Contract-Based Testing (SSE)
+**Стане (Domain-driven):**
+```typescript
+const stream = await driver.getStream(jobId);
+expect(stream).toEmitSnapshot({ status: 'completed' });
+expect(stream).toComplete();
+```
 
-Фокусуватися на тому, що приходить у заголовок `event:` та `data:`. Це наш публічний контракт. Тести не повинні перевіряти, чи викликався `redis.exists` чи `redis.hgetall` — вони мають перевіряти лише фінальний SSE-потік.
-
-### 4. Тестування "станів", а не "функцій"
-
-Замість "тесту для trySendFinishedResultFromDb", робити "тест для сценарію: Клієнт підключається до старого джоба". Це дозволяє нам міняти логіку (наприклад, перенести дані з БД в S3), не змінюючи тест.
-
-## 4. Висновок
-
-Щоб тести були простими, вони мають розмовляти мовою **бізнес-логіки** ("джоб завершено", "черга повна"), а не мовою **інфраструктури** ("xread повернув null", "id дорівнює 1-1").
-
-Наступним кроком має бути аналогічний рефакторинг тестів: створення шару абстракції (Drivers/Helpers), який приховає технічні деталі транспорту.
+Це дозволить нам замінити Redis на іншу базу, або SSE на WebSockets, змінивши лише код Драйвера, при цьому **жоден тест не зламається**.

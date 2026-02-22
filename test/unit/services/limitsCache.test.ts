@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { FakeRedis } from '../../mock/Redis';
 import { getCachedUserLimits } from '../../../src/services/limitsCache';
 import { redisKeys } from '../../../src/redis/keys';
 import { db } from '../../../src/db/client';
+import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 
 vi.mock('../../../src/db/client', () => {
   return {
@@ -14,18 +14,19 @@ vi.mock('../../../src/db/client', () => {
 
 const dbQuery = db.query as unknown as ReturnType<typeof vi.fn>;
 
-describe('getCachedUserLimits', () => {
-  const redis = new FakeRedis() as any;
+describe('getCachedUserLimits (Behavioral)', () => {
+  let redisDriver: RedisBehavioralDriver;
   const userId = 'user-1';
 
-  beforeEach(() => {
-    redis.reset();
+  beforeEach(async () => {
+    redisDriver = new RedisBehavioralDriver();
+    await redisDriver.instance.flushall();
     dbQuery.mockReset();
   });
 
   it('returns cached limits without hitting DB', async () => {
     const key = redisKeys.userLimits(userId);
-    redis.hset(key, {
+    await redisDriver.instance.hset(key, {
       role: 'admin',
       hard_rpd: '',
       lite_rpd: '',
@@ -33,7 +34,7 @@ describe('getCachedUserLimits', () => {
       unlimited: 'true',
     });
 
-    const limits = await getCachedUserLimits(redis, userId, 'user');
+    const limits = await getCachedUserLimits(redisDriver.instance, userId, 'user');
 
     expect(limits).toEqual({
       role: 'admin',
@@ -58,7 +59,7 @@ describe('getCachedUserLimits', () => {
       ],
     });
 
-    const limits = await getCachedUserLimits(redis, userId, 'user');
+    const limits = await getCachedUserLimits(redisDriver.instance, userId, 'user');
 
     expect(limits).toEqual({
       role: 'user',
@@ -67,7 +68,8 @@ describe('getCachedUserLimits', () => {
       max_concurrency: 4,
       unlimited: false,
     });
-    expect(redis.hgetall(redisKeys.userLimits(userId))).toMatchObject({
+    const cached = await redisDriver.instance.hgetall(redisKeys.userLimits(userId));
+    expect(cached).toMatchObject({
       role: 'user',
       hard_rpd: '2',
       lite_rpd: '3',
@@ -80,7 +82,7 @@ describe('getCachedUserLimits', () => {
   it('falls back to default user limits when DB has no row', async () => {
     dbQuery.mockResolvedValueOnce({ rows: [] });
 
-    const limits = await getCachedUserLimits(redis, userId, 'user');
+    const limits = await getCachedUserLimits(redisDriver.instance, userId, 'user');
 
     expect(limits).toEqual({
       role: 'user',
@@ -89,7 +91,8 @@ describe('getCachedUserLimits', () => {
       max_concurrency: 2,
       unlimited: false,
     });
-    expect(redis.hgetall(redisKeys.userLimits(userId))).toMatchObject({
+    const cached = await redisDriver.instance.hgetall(redisKeys.userLimits(userId));
+    expect(cached).toMatchObject({
       role: 'user',
       hard_rpd: '1',
       lite_rpd: '4',
@@ -101,7 +104,7 @@ describe('getCachedUserLimits', () => {
   it('falls back to default admin limits when DB has no row', async () => {
     dbQuery.mockResolvedValueOnce({ rows: [] });
 
-    const limits = await getCachedUserLimits(redis, userId, 'admin');
+    const limits = await getCachedUserLimits(redisDriver.instance, userId, 'admin');
 
     expect(limits).toEqual({
       role: 'admin',
@@ -110,7 +113,8 @@ describe('getCachedUserLimits', () => {
       max_concurrency: null,
       unlimited: true,
     });
-    expect(redis.hgetall(redisKeys.userLimits(userId))).toMatchObject({
+    const cached = await redisDriver.instance.hgetall(redisKeys.userLimits(userId));
+    expect(cached).toMatchObject({
       role: 'admin',
       unlimited: 'true',
     });

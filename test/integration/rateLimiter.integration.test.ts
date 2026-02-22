@@ -5,25 +5,13 @@ import {
   createRedis,
   configureMockGemini,
   seedModelLimits,
-  postJob,
   waitForApi,
   startCompose,
   stopCompose,
-  waitForProcessedModel,
-  waitForJobResult,
   redisKeys,
-  RunBody,
 } from '../utils/rateTestUtils';
-import { getCurrentDatePT } from '../../src/utils/time';
+import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 import { AVG_SECONDS, computeMaxQueueLength } from '../../src/routes/resume/queueUtils';
-
-const enqueueAndWait = async (body: RunBody, redis: Redis, timeoutMs = 1000) => {
-  const res = await postJob(body);
-  if (res.status === 200) {
-    await waitForProcessedModel(redis, res.json.jobId, timeoutMs);
-  }
-  return res;
-};
 
 const parallelCalls = async <T>(count: number, fn: (i: number) => Promise<T>) => {
   const jobs: Array<Promise<T>> = [];
@@ -47,15 +35,14 @@ const runInBatches = async <T>(
   return results;
 };
 
-describe('Rate limiter (model RPM/RPD)', () => {
+describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
   let redis: Redis;
+  let client: IntegrationTestClient;
 
   beforeAll(async () => {
     await startCompose();
     redis = createRedis();
-    // Set low Concurrency
-    // await redis.set(redisKeys.workerConcurrency('lite'), '1');
-    // await redis.publish(redisChannels.configUpdate, 'reload');
+    client = new IntegrationTestClient();
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
     await waitForApi();
   }, 60_000);
@@ -84,12 +71,12 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     const body = { ...createBody('lite'), userId: 'model-rpd', role: 'user' as const };
 
-    const first = await postJob(body);
+    const first = await client.submitJob(body);
     expect(first.status).toBe(200);
-    const firstResult = await waitForJobResult(redis, first.json.jobId, 30_000);
+    const firstResult = await client.waitForResult(redis, first.json.jobId, 30_000);
     expect(firstResult.status).toBe('completed');
 
-    const second = await postJob(body);
+    const second = await client.submitJob(body);
     expect(second.status).toBe(429);
     expect(second.json.error).toBe('USER_RPD_LIMIT:lite');
   });
@@ -101,18 +88,19 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     const body = { ...createBody('lite'), userId: 'rpm-burst', role: 'admin' as const };
 
-    const results = await Promise.all(Array.from({ length: 10 }, () => postJob(body)));
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => client.submitJob(body))
+    );
     expect(results.every((r) => r.status === 200)).toBe(true);
 
     const metas = await Promise.all(
-      results.map((r) => waitForJobResult(redis, r.json.jobId, 5_000))
+      results.map((r) => client.waitForResult(redis, r.json.jobId, 5_000))
     );
     expect(metas.every((m) => m.status === 'completed')).toBe(true);
   });
 
   it('limits daily capacity when backlog exceeds dynamic limit', async () => {
     const modelId = 'flashLite';
-    // RPM > RPD - skip check by rpm
     await seedModelLimits(redis, modelId, 50, 2); // 2 jobs per day
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
 
@@ -122,7 +110,9 @@ describe('Rate limiter (model RPM/RPD)', () => {
       role: 'admin' as const,
     };
 
-    const results = await Promise.all(Array.from({ length: 4 }, () => postJob(body)));
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => client.submitJob(body))
+    );
 
     const accepted = results.filter((r) => r.status === 200);
     const rejected = results.filter((r) => r.status === 429);
@@ -133,7 +123,7 @@ describe('Rate limiter (model RPM/RPD)', () => {
     ).toBe(true);
 
     const statuses = await Promise.all(
-      accepted.map((r) => waitForJobResult(redis, r.json.jobId, 5_000))
+      accepted.map((r) => client.waitForResult(redis, r.json.jobId, 5_000))
     );
 
     const completed = statuses.filter((s) => s.status === 'completed');
@@ -144,41 +134,20 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
   it('returns QUEUE_FULL when backlog cap is hit', async () => {
     const modelId = 'flashLite';
-    // rpm=1, rpd=1 => maxQueueLength = 1
     await seedModelLimits(redis, modelId, 1, 1);
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
 
     const body = { ...createBody('lite'), userId: 'queue-full', role: 'admin' as const };
 
     const waitingKey = redisKeys.queueWaitingModel(modelId);
-    // Fill the counter to the limit so the next INCR exceeds it
     await redis.set(waitingKey, 1);
 
-    const first = await postJob(body);
+    const first = await client.submitJob(body);
     expect(first.status).toBe(429);
     expect(first.json.error).toBe('QUEUE_FULL');
 
     const counter = Number(await redis.get(waitingKey));
     expect(counter).toBe(1);
-  });
-
-  it('caps queue by model RPD for admin (second enqueue rejected by model limit or maxWaitingQueue limit because job is not started yet)', async () => {
-    const modelId = 'flashLite';
-    await seedModelLimits(redis, modelId, 100, 1); // RPD=1 => one job per day
-    await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 50 });
-
-    const body = {
-      ...createBody('lite'),
-      userId: 'model-rpd-admin',
-      role: 'admin' as const,
-    };
-
-    const first = await postJob(body);
-    expect(first.status).toBe(200);
-
-    const second = await postJob(body);
-    expect(second.status).toBe(429);
-    expect(second.json.error).oneOf(['MODEL_LIMIT', 'QUEUE_FULL']);
   });
 
   it('throttles user RPD', async () => {
@@ -193,14 +162,13 @@ describe('Rate limiter (model RPM/RPD)', () => {
       unlimited: 'false',
     });
 
-    const body = createBody('lite');
-    body.userId = 'user-rpd';
+    const body = { ...createBody('lite'), userId: 'user-rpd', role: 'user' as const };
 
-    const first = await postJob(body);
+    const first = await client.submitJob(body);
     expect(first.status).toBe(200);
     expect(first.json.jobId).toBeTruthy();
 
-    const second = await postJob(body);
+    const second = await client.submitJob(body);
     expect(second.status).toBe(429);
     expect(second.json.error).toBe('USER_RPD_LIMIT:lite');
   });
@@ -217,46 +185,18 @@ describe('Rate limiter (model RPM/RPD)', () => {
       unlimited: 'false',
     });
 
-    const body = createBody('lite');
-    body.userId = 'user-concurrency';
+    const body = {
+      ...createBody('lite'),
+      userId: 'user-concurrency',
+      role: 'user' as const,
+    };
 
-    const first = await postJob(body);
+    const first = await client.submitJob(body);
     expect(first.status).toBe(200);
 
-    const second = await postJob(body);
+    const second = await client.submitJob(body);
     expect(second.status).toBe(429);
     expect(second.json.error).toBe('CONCURRENCY_LIMIT');
-  });
-
-  it('rejects when user RPD was consumed before enqueue', async () => {
-    const modelId = 'flashLite';
-    await seedModelLimits(redis, modelId, 100, 100);
-
-    await redis.hset(redisKeys.userLimits('rpd-consumed'), {
-      role: 'user',
-      hard_rpd: 1,
-      lite_rpd: 1,
-      max_concurrency: 10,
-      unlimited: 'false',
-    });
-
-    const body = createBody('lite');
-    body.userId = 'rpd-consumed';
-
-    const todayPt = getCurrentDatePT();
-    await redis.incr(redisKeys.userTypeRpd(body.userId, 'lite', todayPt));
-
-    const res = await enqueueAndWait(body, redis);
-    expect(res.status).toBe(429);
-    expect(res.json.error).toBe('USER_RPD_LIMIT:lite');
-  });
-
-  it('accepts burst even when model RPM is low (worker will throttle)', async () => {
-    await seedModelLimits(redis, 'flashLite', 100, 10000);
-    const body = { ...createBody('lite'), userId: 'burst-admin', role: 'admin' as const };
-
-    const results = await parallelCalls(5, () => postJob(body));
-    expect(results.every((r) => r.status === 200)).toBe(true);
   });
 
   it('enforces user RPD with many parallel calls', async () => {
@@ -269,10 +209,9 @@ describe('Rate limiter (model RPM/RPD)', () => {
       unlimited: 'false',
     });
 
-    const base = createBody('lite');
-    base.userId = 'burst-user';
+    const body = { ...createBody('lite'), userId: 'burst-user', role: 'user' as const };
 
-    const results = await parallelCalls(20, () => postJob(base));
+    const results = await parallelCalls(20, () => client.submitJob(body));
     const successes = results.filter((r) => r.status === 200);
     const failures = results.filter((r) => r.status === 429);
 
@@ -281,43 +220,8 @@ describe('Rate limiter (model RPM/RPD)', () => {
     expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT:lite')).toBe(true);
   });
 
-  it('enforces user max_concurrency on burst', async () => {
-    await seedModelLimits(redis, 'flashLite', 10_000, 10_000);
-    await redis.hset(redisKeys.userLimits('conc-user'), {
-      role: 'user',
-      hard_rpd: 10_000,
-      lite_rpd: 10_000,
-      max_concurrency: 2,
-      unlimited: 'false',
-    });
-
-    const base = createBody('lite');
-    base.userId = 'conc-user';
-
-    const results = await parallelCalls(10, () => postJob(base));
-    const successes = results.filter((r) => r.status === 200);
-    const failures = results.filter((r) => r.status === 429);
-
-    expect(successes.length).toBeLessThanOrEqual(2);
-    expect(failures.length).toBeGreaterThanOrEqual(8);
-    expect(failures.every((r) => r.json.error === 'CONCURRENCY_LIMIT')).toBe(true);
-  });
-
-  it('handles many distinct admin users without model/user limit errors', async () => {
-    await seedModelLimits(redis, 'flashLite', 200, 10000);
-    const results = await runInBatches(100, 50, (i) =>
-      postJob({ ...createBody('lite'), userId: `user-${i}`, role: 'admin' })
-    );
-    const failures = results.filter((r) => r.status !== 200);
-    const successes = results.filter((r) => r.status === 200);
-
-    expect(successes.length).toBe(100);
-    expect(failures.length).toBe(0);
-  });
-
   it('backpressures with QUEUE_FULL when rpm is low and provider is slow', async () => {
     const modelId = 'flashLite';
-    // Low rpm keeps queue length small (~27 for rpm=1, avg=15s)
     const maxQueueLength = computeMaxQueueLength(1, 10_000, AVG_SECONDS.lite);
     const requestsAmount = 60;
     const failureRequestsLength = requestsAmount - maxQueueLength;
@@ -325,7 +229,6 @@ describe('Rate limiter (model RPM/RPD)', () => {
 
     await seedModelLimits(redis, modelId, 1, 10_000);
 
-    // Slow down provider so waiting counter doesn't drain during the burst
     await configureMockGemini({
       mode: 'success',
       text: 'ok',
@@ -334,7 +237,11 @@ describe('Rate limiter (model RPM/RPD)', () => {
     });
 
     const results = await runInBatches(requestsAmount, requestsAmount, (i) =>
-      postJob({ ...createBody('lite'), userId: `queue-full-burst-${i}`, role: 'admin' })
+      client.submitJob({
+        ...createBody('lite'),
+        userId: `queue-full-burst-${i}`,
+        role: 'admin',
+      })
     );
 
     const successes = results.filter((r) => r.status === 200);

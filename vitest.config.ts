@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     // Exclude compiled tests in dist/ to avoid running CommonJS bundles in Vitest.
     exclude: [...configDefaults.exclude, 'dist/**'],
+    setupFiles: ['./test/matchers.ts'],
   },
 });
