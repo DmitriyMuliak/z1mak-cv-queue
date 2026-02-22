@@ -10,18 +10,19 @@ import {
   waitForApi,
   startCompose,
   stopCompose,
-  waitForJobResult,
-  postStreamJob,
   TEST_DB_PORT,
 } from '../utils/rateTestUtils';
+import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 
-describe('Database Synchronization Cron Job', () => {
+describe('Database Synchronization Cron Job (Behavioral)', () => {
   let redis: Redis;
   let pgClient: Client;
+  let client: IntegrationTestClient;
 
   beforeAll(async () => {
     await startCompose();
     redis = createRedis();
+    client = new IntegrationTestClient();
 
     pgClient = new Client({
       connectionString: `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres`,
@@ -61,14 +62,14 @@ describe('Database Synchronization Cron Job', () => {
       delayMs: 10,
     });
 
-    const response = await postStreamJob(body);
+    const response = await client.submitStreamJob(body);
     expect(response.status).toBe(200);
 
-    const jobId = response.headers.get('x-job-id');
+    const { jobId } = (await response.json()) as any;
     expect(jobId).toBeTruthy();
 
-    // 1. Verify Redis Result
-    const result = await waitForJobResult(redis, jobId!, 30_000);
+    // 1. Verify Redis Result using driver
+    const result = await client.waitForResult(redis, jobId, 30_000);
     expect(result.status).toBe('completed');
 
     // 2. Verify DB Persistence (wait for DB sync cron)

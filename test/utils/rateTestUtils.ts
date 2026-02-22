@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import Redis from 'ioredis';
 import { redisKeys } from '../../src/redis/keys';
+import { parseSSE, ParsedSSEEvent } from '../helpers/sse-parser';
 import type { Mode } from '../../src/types/mode';
 
 export const composeRequested = process.env.TEST_USE_COMPOSE !== '0';
@@ -159,11 +160,10 @@ export const connectToStream = async (
   });
 };
 
-export const sseToArray = async (response: Response): Promise<any[]> => {
+export const sseToArray = async (response: Response): Promise<ParsedSSEEvent[]> => {
   const reader = response.body?.getReader();
   if (!reader) return [];
   const decoder = new TextDecoder();
-  const result: any[] = [];
   let buffer = '';
 
   try {
@@ -171,38 +171,15 @@ export const sseToArray = async (response: Response): Promise<any[]> => {
       const { done, value } = await reader.read();
       if (value) {
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-
-        for (const part of parts) {
-          if (!part.trim()) continue;
-
-          const lines = part.split('\n');
-          let eventData: any = null;
-          let eventName = '';
-          let eventId = '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const rawData = line.substring(6).trim();
-              eventData = rawData ? JSON.parse(rawData) : {};
-            } else if (line.startsWith('event: ')) {
-              eventName = line.substring(7).trim();
-            } else if (line.startsWith('id: ')) {
-              eventId = line.substring(4).trim();
-            }
-          }
-          result.push({ id: eventId, event: eventName, data: eventData });
-        }
       }
       if (done) break;
     }
   } finally {
     reader.releaseLock();
   }
-  return result;
-};
 
+  return parseSSE(buffer);
+};
 export const ndjsonToArray = async (response: Response): Promise<any[]> => {
   const reader = response.body?.getReader();
   if (!reader) return [];

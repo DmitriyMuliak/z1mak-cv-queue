@@ -39,16 +39,24 @@ export const createExecuteModel = (
       for await (const chunk of stream) {
         fullText += chunk;
         const message = JSON.stringify({ type: 'chunk', data: chunk });
-        await redis.xadd(streamKey, '*', 'data', message);
 
         if (isFirstChunk) {
-          await redis.expire(streamKey, STREAM_TTL_SAFETY);
+          redis
+            .pipeline()
+            .xadd(streamKey, '*', 'data', message)
+            .expire(streamKey, STREAM_TTL_SAFETY)
+            .exec();
           isFirstChunk = false;
+        } else {
+          await redis.xadd(streamKey, '*', 'data', message);
         }
       }
 
-      await redis.xadd(streamKey, '*', 'data', JSON.stringify({ type: 'done' }));
-      await redis.expire(streamKey, STREAM_TTL_COMPLETED);
+      await redis
+        .pipeline()
+        .xadd(streamKey, '*', 'data', JSON.stringify({ type: 'done' }))
+        .expire(streamKey, STREAM_TTL_COMPLETED)
+        .exec();
 
       return { text: fullText, usedModel: model };
     } catch (error: unknown) {
@@ -61,8 +69,11 @@ export const createExecuteModel = (
         message: errorMessage,
       });
 
-      await redis.xadd(streamKey, '*', 'data', errorMsg);
-      await redis.expire(streamKey, STREAM_TTL_COMPLETED);
+      await redis
+        .pipeline()
+        .xadd(streamKey, '*', 'data', errorMsg)
+        .expire(streamKey, STREAM_TTL_COMPLETED)
+        .exec();
 
       throw error;
     }

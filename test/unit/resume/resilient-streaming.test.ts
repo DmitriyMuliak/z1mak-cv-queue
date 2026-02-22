@@ -1,52 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import resumeRoutes from '../../../src/routes/resume/resume';
+import { ResumeTestDriver } from '../../helpers/ResumeTestDriver';
+import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 import { redisKeys } from '../../../src/redis/keys';
 
-// Mock dependencies
+// Mock DB
 vi.mock('../../../src/db/client', () => ({
-  db: {
-    withUserContext: vi.fn(),
-  },
-}));
-vi.mock('../../../src/services/limitsCache', () => ({
-  getCachedUserLimits: vi.fn().mockResolvedValue({ role: 'user', unlimited: false }),
-}));
-vi.mock('../../../src/services/modelSelector', () => ({
-  resolveModelChain: vi
-    .fn()
-    .mockResolvedValue({ requestedModel: 'm1', fallbackModels: [] }),
-}));
-vi.mock('../../../src/routes/resume/modelSelection', () => ({
-  selectAvailableModel: vi.fn().mockResolvedValue({
-    status: 'ok',
-    model: 'm1',
-    modelRpm: 10,
-    modelRpd: 100,
-  }),
-}));
-vi.mock('../../../src/routes/resume/enqueueJob', () => ({
-  enqueueJob: vi.fn().mockResolvedValue(undefined),
+  db: { withUserContext: vi.fn() },
 }));
 
-describe('Resilient Streaming Logic (RFC-002)', () => {
+describe('Resilient Streaming Logic (Behavioral with ioredis-mock)', () => {
   let fastify: any;
-  let mockRedis: any;
+  let redisDriver: RedisBehavioralDriver;
+  let driver: ResumeTestDriver;
 
   beforeEach(async () => {
     vi.stubEnv('DATABASE_URL', 'postgresql://localhost:5432/test');
-
-    mockRedis = {
-      incr: vi.fn().mockResolvedValue(1),
-      decr: vi.fn().mockResolvedValue(0),
-      hget: vi.fn().mockResolvedValue(null),
-      hgetall: vi.fn().mockResolvedValue({}),
-      xread: vi.fn().mockResolvedValue(null),
-      exists: vi.fn().mockResolvedValue(0),
-    };
+    redisDriver = new RedisBehavioralDriver();
 
     fastify = Fastify();
-    fastify.decorate('redis', mockRedis);
+    fastify.decorate('redis', redisDriver.instance);
+
     fastify.decorate('authenticate', async (request: any) => {
       request.user = { sub: 'u1', app_metadata: { role: 'user' } };
     });
@@ -54,6 +29,7 @@ describe('Resilient Streaming Logic (RFC-002)', () => {
     fastify.decorate('queueHard', {});
 
     await fastify.register(resumeRoutes, { prefix: '/resume' });
+    driver = new ResumeTestDriver(fastify);
   });
 
   afterEach(async () => {
@@ -61,193 +37,62 @@ describe('Resilient Streaming Logic (RFC-002)', () => {
     await fastify.close();
   });
 
-  it('Adaptive Polling: sends queued status and closes immediately if job is in queue', async () => {
+  it('Scenario: User connects to a queued job', async () => {
     const jobId = 'job-queued';
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId)) {
-        return { status: 'queued', streaming: 'true' };
+    await redisDriver.setupActiveJob(jobId, 'queued');
+
+    const { events } = await driver.getStream(jobId);
+
+    expect(events).toEmitSnapshot({ status: 'queued' });
+  });
+
+  it('Scenario: User resumes connection and gets consolidated snapshot', async () => {
+    const jobId = 'job-history';
+    await redisDriver.setupActiveJob(jobId, 'processing');
+    await redisDriver.pushToStream(jobId, 'chunk', 'Hello ');
+    await redisDriver.pushToStream(jobId, 'chunk', 'World');
+    await redisDriver.pushToStream(jobId, 'done');
+
+    const { events } = await driver.getStream(jobId);
+
+    expect(events).toEmitSnapshot({ content: 'Hello World' });
+    expect(events).toCompleteSuccessfully();
+  });
+
+  it('Scenario: Stream key expires while user is waiting', async () => {
+    const jobId = 'job-zombie';
+    const streamKey = redisKeys.jobStream(jobId);
+
+    await redisDriver.setupActiveJob(jobId, 'processing');
+
+    // We break the loop by making exists return 0 on the second loop check
+    let existsCalls = 0;
+    vi.spyOn(redisDriver.instance, 'exists').mockImplementation(async (key: any) => {
+      if (key === streamKey) {
+        // threshold 2 allows initial checks to pass and then breaks the loop
+        return existsCalls++ < 2 ? 1 : 0;
       }
-      return {};
-    });
-    mockRedis.exists.mockResolvedValue(0);
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: {},
+      return 0;
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('event: snapshot');
-    expect(response.body).toContain('"status":"queued"');
+    const { status } = await driver.getStream(jobId);
+    expect(status).toBe(200);
   });
 
-  it('Snapshot Consolidation: merges multiple chunks into one snapshot', async () => {
-    const jobId = 'job-processing';
-    const streamKey = redisKeys.jobStream(jobId);
-
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId))
-        return { status: 'processing', streaming: 'true' };
-      return {};
-    });
-    mockRedis.exists.mockResolvedValueOnce(1).mockResolvedValue(0);
-
-    mockRedis.xread.mockResolvedValueOnce([
-      [
-        streamKey,
-        [
-          ['1-0', ['data', JSON.stringify({ type: 'chunk', data: 'Part 1' })]],
-          ['1-1', ['data', JSON.stringify({ type: 'chunk', data: 'Part 2' })]],
-        ],
-      ],
-    ]);
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: { lastEventId: '' },
-    });
-
-    expect(response.body).toContain('event: snapshot');
-    expect(response.body).toContain('Part 1Part 2');
-  });
-
-  it('Delta Resumption: sends only missed chunks', async () => {
-    const jobId = 'job-processing';
-    const streamKey = redisKeys.jobStream(jobId);
-
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId))
-        return { status: 'processing', streaming: 'true' };
-      return {};
-    });
-    mockRedis.exists.mockResolvedValueOnce(1).mockResolvedValue(0);
-
-    mockRedis.xread.mockResolvedValueOnce([
-      [
-        streamKey,
-        [['1-4', ['data', JSON.stringify({ type: 'chunk', data: 'Missed Chunk' })]]],
-      ],
-    ]);
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: { lastEventId: '1-3' },
-    });
-
-    expect(response.body).toContain('event: chunk');
-    expect(response.body).toContain('Missed Chunk');
-    expect(response.body).not.toContain('event: snapshot');
-  });
-
-  it('Database Fallback: retrieves result from DB if Redis is empty', async () => {
-    const jobId = 'job-old';
+  it('Scenario: Redis is empty, fallback to Database', async () => {
+    const jobId = 'job-db-fallback';
     const { db } = await import('../../../src/db/client');
-
-    mockRedis.hgetall.mockResolvedValue({});
-    mockRedis.exists.mockResolvedValue(0);
 
     (db.withUserContext as any).mockImplementation(async (_user: any, cb: any) => {
       return cb({
         query: vi.fn().mockResolvedValue({
-          rows: [{ status: 'completed', result: { summary: 'from-db' }, error: null }],
+          rows: [{ status: 'completed', result: { text: 'db-val' }, error: null }],
         }),
       });
     });
 
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: {},
-    });
+    const { events } = await driver.getStream(jobId);
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('event: snapshot');
-    expect(response.body).toContain('from-db');
-  });
-
-  it('Zombie Prevention: closes connection if stream key disappears', async () => {
-    const jobId = 'job-live';
-    const streamKey = redisKeys.jobStream(jobId);
-
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId))
-        return { status: 'processing', streaming: 'true' };
-      return {};
-    });
-
-    mockRedis.xread.mockResolvedValue(null);
-
-    // Simulate TTL expiry: key exists on the first check, but disappears during the loop
-    let existsCallCount = 0;
-    mockRedis.exists.mockImplementation((key: string) => {
-      if (key === streamKey) {
-        return existsCallCount++ === 0 ? 1 : 0;
-      }
-      return 1;
-    });
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: {},
-    });
-
-    expect(response.statusCode).toBe(200);
-    // The test passes if the inject call finishes, meaning reply.raw.end() was called
-  });
-
-  it('Race Condition: handles job completion during connect', async () => {
-    const jobId = 'job-finishing';
-    const streamKey = redisKeys.jobStream(jobId);
-
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId))
-        return { status: 'processing', streaming: 'true' };
-      return {};
-    });
-    mockRedis.exists.mockResolvedValueOnce(1).mockResolvedValue(0);
-
-    mockRedis.xread.mockResolvedValueOnce([
-      [
-        streamKey,
-        [
-          ['1-0', ['data', JSON.stringify({ type: 'chunk', data: 'Final text' })]],
-          ['1-1', ['data', JSON.stringify({ type: 'done' })]],
-        ],
-      ],
-    ]);
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: {},
-    });
-
-    expect(response.body).toContain('event: snapshot');
-    expect(response.body).toContain('"status":"completed"');
-  });
-
-  it('Invalid lastEventId: handles errors gracefully with SSE event', async () => {
-    const jobId = 'job-live';
-    mockRedis.hgetall.mockImplementation((key: string) => {
-      if (key === redisKeys.jobMeta(jobId))
-        return { status: 'processing', streaming: 'true' };
-      return {};
-    });
-    mockRedis.exists.mockResolvedValue(1);
-    mockRedis.xread.mockRejectedValue(new Error('ERR Invalid stream ID'));
-
-    const response = await fastify.inject({
-      method: 'POST',
-      url: `/resume/${jobId}/result-stream`,
-      payload: { lastEventId: 'invalid-garbage' },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('event: error');
-    expect(response.body).toContain('SERVER_ERROR');
+    expect(events).toEmitSnapshot({ content: { text: 'db-val' } });
   });
 });

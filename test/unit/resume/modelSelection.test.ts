@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { selectAvailableModel } from '../../../src/routes/resume/modelSelection';
 import { AcquireCode } from '../../../src/types/queueCodes';
 import type { UserLimits } from '../../../src/services/limitsCache';
-import { redisKeys } from '../../../src/redis/keys';
+import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 
 const baseLimits: UserLimits = {
   hard_rpd: 10,
@@ -12,44 +12,30 @@ const baseLimits: UserLimits = {
   role: 'user',
 };
 
-type MockRedis = {
-  hgetall: (key: string) => Promise<Record<string, string>>;
-  combinedCheckAndAcquire: () => Promise<AcquireCode>;
-};
-
-const createMockRedis = (responses: AcquireCode[]): MockRedis => {
-  const limits = new Map<string, Record<string, string>>();
-  const addModel = (id: string, rpm: number, rpd: number) => {
-    limits.set(redisKeys.modelLimits(id), { rpm: String(rpm), rpd: String(rpd) });
-  };
-
-  addModel('m1', 100, 100);
-  addModel('m2', 50, 50);
-
-  return {
-    hgetall: async (key: string) => limits.get(key) ?? {},
-    combinedCheckAndAcquire: async () =>
-      responses.shift() ?? AcquireCode.ModelRpdExceeded,
-  };
-};
-
-describe('selectAvailableModel', () => {
+describe('selectAvailableModel (Behavioral)', () => {
+  let redisDriver: RedisBehavioralDriver;
   let todayPT: string;
   let dayTtl: number;
   let now: number;
   let userLimits: UserLimits;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    redisDriver = new RedisBehavioralDriver();
     todayPT = '2024-01-01';
     dayTtl = 1000;
     now = Date.now();
     userLimits = { ...baseLimits };
+
+    // Setup models
+    await redisDriver.setupModelLimits('m1', 100, 100);
+    await redisDriver.setupModelLimits('m2', 50, 50);
   });
 
   it('selects the first model when acquire is OK', async () => {
-    const redis = createMockRedis([AcquireCode.OK]);
+    redisDriver.simulateScript('combinedCheckAndAcquire', () => AcquireCode.OK);
+
     const res = await selectAvailableModel({
-      redis: redis as any,
+      redis: redisDriver.instance,
       modelChain: ['m1', 'm2'],
       userId: 'u1',
       isAdmin: false,
@@ -71,9 +57,11 @@ describe('selectAvailableModel', () => {
   });
 
   it('skips model when model RPD exceeded and picks fallback', async () => {
-    const redis = createMockRedis([AcquireCode.ModelRpdExceeded, AcquireCode.OK]);
+    const responses = [AcquireCode.ModelRpdExceeded, AcquireCode.OK];
+    redisDriver.simulateScript('combinedCheckAndAcquire', () => responses.shift());
+
     const res = await selectAvailableModel({
-      redis: redis as any,
+      redis: redisDriver.instance,
       modelChain: ['m1', 'm2'],
       userId: 'u1',
       isAdmin: false,
@@ -90,9 +78,13 @@ describe('selectAvailableModel', () => {
   });
 
   it('returns concurrency error when exceeded', async () => {
-    const redis = createMockRedis([AcquireCode.ConcurrencyExceeded]);
+    redisDriver.simulateScript(
+      'combinedCheckAndAcquire',
+      () => AcquireCode.ConcurrencyExceeded
+    );
+
     const res = await selectAvailableModel({
-      redis: redis as any,
+      redis: redisDriver.instance,
       modelChain: ['m1'],
       userId: 'u1',
       isAdmin: false,
@@ -109,9 +101,13 @@ describe('selectAvailableModel', () => {
   });
 
   it('returns user rpd error when exceeded', async () => {
-    const redis = createMockRedis([AcquireCode.UserRpdExceeded]);
+    redisDriver.simulateScript(
+      'combinedCheckAndAcquire',
+      () => AcquireCode.UserRpdExceeded
+    );
+
     const res = await selectAvailableModel({
-      redis: redis as any,
+      redis: redisDriver.instance,
       modelChain: ['m1'],
       userId: 'u1',
       isAdmin: false,
@@ -128,12 +124,11 @@ describe('selectAvailableModel', () => {
   });
 
   it('returns model limit error when no model available', async () => {
-    const redis = createMockRedis([
-      AcquireCode.ModelRpdExceeded,
-      AcquireCode.ModelRpdExceeded,
-    ]);
+    const responses = [AcquireCode.ModelRpdExceeded, AcquireCode.ModelRpdExceeded];
+    redisDriver.simulateScript('combinedCheckAndAcquire', () => responses.shift());
+
     const res = await selectAvailableModel({
-      redis: redis as any,
+      redis: redisDriver.instance,
       modelChain: ['m1', 'm2'],
       userId: 'u1',
       isAdmin: false,

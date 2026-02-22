@@ -1,6 +1,6 @@
 import { QueueEvents, Queue } from 'bullmq';
 import { redisKeys } from '../redis/keys';
-import { JOB_KEY_TTL_SECONDS } from '../constants/jobKeys';
+import { JOB_KEY_TTL_SECONDS, STREAM_TTL_COMPLETED } from '../constants/jobKeys';
 import type { RedisWithScripts } from '../redis/client';
 import type { ModeType } from './concurrencyManager';
 import type { GeminiErrorMessage } from '../ai/providers/gemini/errorMapping';
@@ -104,6 +104,17 @@ export const createQueueEventsRegistrar = ({
         });
         pipe.expire(redisKeys.jobResult(jobId), JOB_KEY_TTL_SECONDS);
         pipe.expire(redisKeys.jobMeta(jobId), JOB_KEY_TTL_SECONDS);
+
+        // Notify stream of failure and set TTL for cleanup
+        const streamKey = redisKeys.jobStream(jobId);
+        const errorMsg = JSON.stringify({
+          type: 'error',
+          code: errorCode,
+          message: reason,
+        });
+        pipe.xadd(streamKey, '*', 'data', errorMsg);
+        pipe.expire(streamKey, STREAM_TTL_COMPLETED);
+
         if (userId) {
           pipe.zrem(redisKeys.userActiveJobs(userId), jobId);
         }

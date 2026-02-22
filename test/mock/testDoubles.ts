@@ -1,4 +1,4 @@
-import { FakeRedis } from './Redis';
+import { RedisBehavioralDriver } from '../helpers/RedisBehavioralDriver';
 import {
   createdQueues as createdQueuesInt,
   createQueueMock as createQueueMockInt,
@@ -14,15 +14,16 @@ export const supabaseClientMock = supabaseClientMockInt;
 export const supabaseQueries = supabaseQueriesInt;
 
 // Redis
-export const fakeRedis = new FakeRedis();
+export const redisDriver = new RedisBehavioralDriver();
+export const fakeRedis = redisDriver.instance;
 
 // Queue
 export const createdQueues = createdQueuesInt;
 export const createQueueMock = createQueueMockInt;
 
 // Reset Logic
-export const resetDoubles = () => {
-  fakeRedis.reset();
+export const resetDoubles = async () => {
+  await redisDriver.instance.flushall();
   supabaseQueries.length = 0;
   createdQueues.forEach((q: any) => {
     q.getJobs = vi.fn(async () => []);
