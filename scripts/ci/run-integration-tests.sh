@@ -6,7 +6,13 @@ HEALTH_RETRIES="${HEALTH_RETRIES:-60}"
 HEALTH_SLEEP_SECONDS="${HEALTH_SLEEP_SECONDS:-1}"
 PORT_VALUE="${PORT:-4000}"
 HEALTH_URL="${TEST_API_HEALTH_URL:-http://127.0.0.1:${PORT_VALUE}/health}"
+MOCK_PORT_VALUE="${GEMINI_MOCK_PORT:-8080}"
+MOCK_HEALTH_URL="${TEST_MOCK_HEALTH_URL:-http://127.0.0.1:${MOCK_PORT_VALUE}/health}"
 INTERNAL_KEY="${INTERNAL_API_KEY:-internal-secret}"
+
+export GEMINI_BASE_URL="${GEMINI_BASE_URL:-http://127.0.0.1:${MOCK_PORT_VALUE}}"
+export GEMINI_MOCK_URL="${GEMINI_MOCK_URL:-http://127.0.0.1:${MOCK_PORT_VALUE}}"
+export GEMINI_MOCK_CONFIG_URL="${GEMINI_MOCK_CONFIG_URL:-${GEMINI_MOCK_URL}/__config}"
 
 MOCK_LOG="${LOG_DIR}/mock-gemini.log"
 API_LOG="${LOG_DIR}/api.log"
@@ -35,7 +41,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-node dist/test/mock/MockGeminiProvider/geminiServer.js > "${MOCK_LOG}" 2>&1 &
+PORT="${MOCK_PORT_VALUE}" node dist/test/mock/MockGeminiProvider/geminiServer.js > "${MOCK_LOG}" 2>&1 &
 MOCK_PID=$!
 
 node -r ./dist/test/mock/fastify/plugins/auth.js dist/src/server/index.js > "${API_LOG}" 2>&1 &
@@ -52,4 +58,13 @@ for ((i=1; i<=HEALTH_RETRIES; i++)); do
 done
 
 curl -fsS -H "x-internal-api-key: ${INTERNAL_KEY}" "${HEALTH_URL}" >/dev/null
+
+for ((i=1; i<=HEALTH_RETRIES; i++)); do
+  if curl -fsS "${MOCK_HEALTH_URL}" >/dev/null; then
+    break
+  fi
+  sleep "${HEALTH_SLEEP_SECONDS}"
+done
+
+curl -fsS "${MOCK_HEALTH_URL}" >/dev/null
 npm run test:integration

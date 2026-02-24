@@ -42,6 +42,7 @@ jobs:
       INTERNAL_API_KEY: 'internal-secret'
       TEST_USE_COMPOSE: '0'
       GEMINI_API_KEY: 'dummy'
+      GEMINI_MOCK_PORT: '8080'
       GEMINI_BASE_URL: 'http://127.0.0.1:8080'
       GEMINI_MOCK_URL: 'http://127.0.0.1:8080'
       DB_SYNC_INTERVAL_MS: '2000'
