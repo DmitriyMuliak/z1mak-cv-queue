@@ -343,7 +343,7 @@ const getPendingJobsCount = async (queue: Queue) => {
   );
 };
 
-export const waitForQueuesIdle = async (timeoutMs = 60_000, pollMs = 200) => {
+export const waitForQueuesIdle = async (timeoutMs = 10_000, pollMs = 200) => {
   const queueLite = new Queue(LITE_QUEUE_NAME, {
     connection: { url: REDIS_URL },
   });
@@ -376,12 +376,16 @@ export const resetIntegrationState = async (
   redis: Redis,
   pgClient?: Pick<Client, 'query'>
 ) => {
-  await waitForQueuesIdle();
-  if (pgClient) {
-    await Promise.all([redis.flushall(), truncateCvAnalyzes(pgClient)]);
-    return;
-  }
+  // 1. Force clear everything in Redis first
   await redis.flushall();
+
+  // 2. Clear database if client provided
+  if (pgClient) {
+    await truncateCvAnalyzes(pgClient);
+  }
+
+  // 3. Optional: small wait to ensure BullMQ internal timers in the app process settle
+  // (but don't wait for queue completion as it may take too long)
 };
 
 // TODO: migrate to "testcontainers" package

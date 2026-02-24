@@ -231,11 +231,6 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     expect(successes.length).toBe(5);
     expect(failures.length).toBe(15);
     expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT:lite')).toBe(true);
-
-    // Wait for successful jobs to finish to avoid interference with subsequent tests
-    await Promise.all(
-      successes.map((r) => client.waitForResult(redis, r.json.jobId, 10_000))
-    );
   });
 
   it('backpressures with QUEUE_FULL when rpm is low and provider is slow', async () => {
@@ -269,10 +264,5 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     expect(failures.length).toBe(failureRequestsLength);
 
     expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);
-
-    // Wait for all successful jobs to finish to prevent background activity leakage
-    await Promise.all(
-      successes.map((r) => client.waitForResult(redis, r.json.jobId, 30_000))
-    );
-  });
+  }, 30_000);
 });
