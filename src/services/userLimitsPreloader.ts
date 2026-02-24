@@ -1,6 +1,4 @@
-// services/limitsPreloader.ts (Final version with pipelining)
-
-import type { Redis } from 'ioredis';
+﻿import type { Redis } from 'ioredis';
 import { db } from '../db/client';
 import { redisKeys } from '../redis/keys';
 
@@ -16,26 +14,26 @@ interface UserLimitRow {
 export type SyncUserLimitsFromDB = typeof syncUserLimitsFromDB;
 
 export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
-  const USER_LIMITS_TTL_SECONDS = 60 * 60 * 24 * 2; // 1h * 24 * 2 (2 days cache)
+  const USER_LIMITS_TTL_SECONDS = 60 * 60 * 24 * 2; // 2 days cache
   let rows: UserLimitRow[] = [];
+
   try {
     const dbResult = await db.query<UserLimitRow>(
       `
       SELECT ul.user_id, ul.role, ul.hard_rpd, ul.lite_rpd, ul.max_concurrency, ul.unlimited
       FROM user_limits ul
-      JOIN auth.users u ON u.id = ul.user_id
-      ORDER BY u.created_at DESC
+      ORDER BY ul.created_at DESC
       LIMIT 1000
       `
     );
     rows = dbResult.rows;
   } catch (error) {
-    console.error('❌ Failed to fetch limits from user_limits DB:', error);
+    console.error('Failed to fetch limits from user_limits DB:', error);
     return;
   }
 
   if (rows.length === 0) {
-    console.info('ℹ️ No user limits found to synchronize.');
+    console.info('No user limits found to synchronize.');
     return;
   }
 
@@ -59,9 +57,9 @@ export const syncUserLimitsFromDB = async (redis: Redis): Promise<void> => {
     const successCount = results.filter(([err]) => err === null).length;
 
     console.log(
-      `✅ Successfully synchronized limits for ${successCount} of ${rows.length} users via pipelining.`
+      `Successfully synchronized limits for ${successCount} of ${rows.length} users via pipelining.`
     );
   } catch (error) {
-    console.error('❌ Critical error running Redis pipeline:', error);
+    console.error('Critical error running Redis pipeline:', error);
   }
 };

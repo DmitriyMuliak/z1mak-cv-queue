@@ -9,7 +9,7 @@ import {
   seedModelLimitsFull,
   waitForProcessedModel,
   truncateCvAnalyzes,
-  scopeValue,
+  scopeUserId,
   TEST_DB_CONNECTION_STRING,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
@@ -50,7 +50,7 @@ describe('Streaming, Fallback and DB Persistence Integration (Behavioral)', () =
 
     const body = {
       ...createBody('lite'),
-      userId: scopeValue('stream-user'),
+      userId: scopeUserId('stream-user'),
       role: 'user' as const,
     };
     const expectedText = '{"summary": "excellent candidate"}';
@@ -86,7 +86,7 @@ describe('Streaming, Fallback and DB Persistence Integration (Behavioral)', () =
 
     const body = {
       ...createBody('lite'),
-      userId: scopeValue('fallback-user'),
+      userId: scopeUserId('fallback-user'),
       role: 'admin' as const,
     };
 

@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
+import { v5 as uuidv5 } from 'uuid';
 import type { Client } from 'pg';
 import { redisKeys } from '../../src/redis/keys';
 import { parseSSE, ParsedSSEEvent } from '../helpers/sse-parser';
@@ -22,6 +23,7 @@ export const dockerAvailable = composeRequested
 export const usingCompose = composeRequested && dockerAvailable;
 export const composeFile = process.env.COMPOSE_FILE ?? 'docker-compose.test.yml';
 const runScope = process.env.TEST_RUN_SCOPE ?? randomUUID().slice(0, 8);
+const TEST_USER_ID_NAMESPACE = '5f5b4f50-8b5a-4e74-9678-4c6a63f7c391';
 
 const poolId = Number(process.env.VITEST_POOL_ID ?? 0);
 // Integration tests run with a shared runtime (global setup), so ports must stay stable
@@ -60,6 +62,8 @@ export const TEST_DB_CONNECTION_STRING =
   process.env.DATABASE_URL ??
   TEST_DB_CONNECTION_STRING_DEFAULT;
 export const scopeValue = (value: string) => `${value}-${runScope}`;
+export const scopeUserId = (value: string) =>
+  uuidv5(scopeValue(value), TEST_USER_ID_NAMESPACE);
 
 const DEFAULT_MODEL_API_NAMES: Record<string, string> = {
   flash3: 'gemini-1.5-pro',

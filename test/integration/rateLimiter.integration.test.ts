@@ -5,7 +5,7 @@ import {
   createRedis,
   configureMockGemini,
   seedModelLimits,
-  scopeValue,
+  scopeUserId,
   redisKeys,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
@@ -56,7 +56,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     const modelId = 'flashLite';
     await seedModelLimits(redis, modelId, 100, 1);
 
-    const userId = scopeValue('model-rpd');
+    const userId = scopeUserId('model-rpd');
     await redis.hset(redisKeys.userLimits(userId), {
       role: 'user',
       hard_rpd: 100,
@@ -84,7 +84,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
 
     const body = {
       ...createBody('lite'),
-      userId: scopeValue('rpm-burst'),
+      userId: scopeUserId('rpm-burst'),
       role: 'admin' as const,
     };
 
@@ -106,7 +106,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
 
     const body = {
       ...createBody('lite'),
-      userId: scopeValue('queue-backlog'),
+      userId: scopeUserId('queue-backlog'),
       role: 'admin' as const,
     };
 
@@ -139,7 +139,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
 
     const body = {
       ...createBody('lite'),
-      userId: scopeValue('queue-full'),
+      userId: scopeUserId('queue-full'),
       role: 'admin' as const,
     };
 
@@ -158,7 +158,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     const modelId = 'flashLite';
     await seedModelLimits(redis, modelId, 100, 100);
 
-    const userId = scopeValue('user-rpd');
+    const userId = scopeUserId('user-rpd');
     await redis.hset(redisKeys.userLimits(userId), {
       role: 'user',
       hard_rpd: 100,
@@ -182,7 +182,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     const modelId = 'flashLite';
     await seedModelLimits(redis, modelId, 100, 100);
 
-    const userId = scopeValue('user-concurrency');
+    const userId = scopeUserId('user-concurrency');
     await redis.hset(redisKeys.userLimits(userId), {
       role: 'user',
       hard_rpd: 10,
@@ -207,7 +207,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
 
   it('enforces user RPD with many parallel calls', async () => {
     await seedModelLimits(redis, 'flashLite', 10_000, 10_000); // high model limits
-    const userId = scopeValue('burst-user');
+    const userId = scopeUserId('burst-user');
     await redis.hset(redisKeys.userLimits(userId), {
       role: 'user',
       hard_rpd: 5,
@@ -246,7 +246,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     const results = await runInBatches(requestsAmount, requestsAmount, (i) =>
       client.submitJob({
         ...createBody('lite'),
-        userId: scopeValue(`queue-full-burst-${i}`),
+        userId: scopeUserId(`queue-full-burst-${i}`),
         role: 'admin',
       })
     );
