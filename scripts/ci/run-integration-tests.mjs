@@ -164,10 +164,9 @@ process.on('SIGTERM', onSignal);
 const main = async () => {
   const runtimeEnv = {
     ...process.env,
-    GEMINI_BASE_URL:
-      process.env.GEMINI_BASE_URL ?? `http://127.0.0.1:${MOCK_PORT}`,
-    GEMINI_MOCK_URL:
-      process.env.GEMINI_MOCK_URL ?? `http://127.0.0.1:${MOCK_PORT}`,
+    DB_SYNC_INTERVAL_MS: process.env.DB_SYNC_INTERVAL_MS ?? '1000',
+    GEMINI_BASE_URL: process.env.GEMINI_BASE_URL ?? `http://127.0.0.1:${MOCK_PORT}`,
+    GEMINI_MOCK_URL: process.env.GEMINI_MOCK_URL ?? `http://127.0.0.1:${MOCK_PORT}`,
     GEMINI_MOCK_CONFIG_URL:
       process.env.GEMINI_MOCK_CONFIG_URL ?? `http://127.0.0.1:${MOCK_PORT}/__config`,
   };

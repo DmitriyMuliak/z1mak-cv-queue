@@ -30,6 +30,8 @@ const resolvePgUrl = (): string | undefined => {
   return process.env.SUPABASE_URL;
 };
 
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
 export const env: EnvConfig = {
   databaseUrl: resolvePgUrl(),
   supabaseUrl: process.env.SUPABASE_URL,
@@ -40,6 +42,6 @@ export const env: EnvConfig = {
   queueHardName: process.env.BULLMQ_QUEUE_HARD || 'ai-jobs-hard',
   internalApiKey: process.env.INTERNAL_API_KEY,
   port: numberFromEnv(process.env.PORT, 4000),
-  dbSyncIntervalMs: numberFromEnv(process.env.DB_SYNC_INTERVAL_MS, 30000),
+  dbSyncIntervalMs: numberFromEnv(process.env.DB_SYNC_INTERVAL_MS, FIVE_MINUTES_MS),
   isProduction: process.env.NODE_ENV === 'production',
 };

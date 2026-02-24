@@ -7,6 +7,7 @@ import {
   seedModelLimits,
   scopeUserId,
   redisKeys,
+  resetIntegrationState,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 import { AVG_SECONDS, computeMaxQueueLength } from '../../src/routes/resume/queueUtils';
@@ -48,7 +49,7 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await redis.flushall();
+    await resetIntegrationState(redis);
     await configureMockGemini({ mode: 'success', text: 'ok', status: 200, delayMs: 0 });
   });
 
@@ -173,6 +174,8 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     expect(first.status).toBe(200);
     expect(first.json.jobId).toBeTruthy();
 
+    await client.waitForResult(redis, first.json.jobId, 10_000);
+
     const second = await client.submitJob(body);
     expect(second.status).toBe(429);
     expect(second.json.error).toBe('USER_RPD_LIMIT:lite');
@@ -203,6 +206,9 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     const second = await client.submitJob(body);
     expect(second.status).toBe(429);
     expect(second.json.error).toBe('CONCURRENCY_LIMIT');
+
+    // Clean up: wait for the first job to finish
+    await client.waitForResult(redis, first.json.jobId, 10_000);
   });
 
   it('enforces user RPD with many parallel calls', async () => {
@@ -225,6 +231,11 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     expect(successes.length).toBe(5);
     expect(failures.length).toBe(15);
     expect(failures.every((r) => r.json.error === 'USER_RPD_LIMIT:lite')).toBe(true);
+
+    // Wait for successful jobs to finish to avoid interference with subsequent tests
+    await Promise.all(
+      successes.map((r) => client.waitForResult(redis, r.json.jobId, 10_000))
+    );
   });
 
   it('backpressures with QUEUE_FULL when rpm is low and provider is slow', async () => {
@@ -258,5 +269,10 @@ describe('Rate limiter (model RPM/RPD) (Behavioral)', () => {
     expect(failures.length).toBe(failureRequestsLength);
 
     expect(failures.every((f) => f.json.error === 'QUEUE_FULL')).toBe(true);
+
+    // Wait for all successful jobs to finish to prevent background activity leakage
+    await Promise.all(
+      successes.map((r) => client.waitForResult(redis, r.json.jobId, 30_000))
+    );
   });
 });

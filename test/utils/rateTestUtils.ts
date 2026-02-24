@@ -40,9 +40,7 @@ export const TEST_DB_PORT = Number(process.env.TEST_DB_PORT ?? TEST_DB_PORT_DEFA
 const TEST_DB_CONNECTION_STRING_DEFAULT = `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres`;
 
 // docker ps --filter "name=cv-queue-test"
-export const PROJECT_NAME = usePoolOffset
-  ? `cv-queue-test-${poolId}`
-  : 'cv-queue-test';
+export const PROJECT_NAME = usePoolOffset ? `cv-queue-test-${poolId}` : 'cv-queue-test';
 
 export const API_URL =
   process.env.TEST_API_URL ??
@@ -341,18 +339,11 @@ const getPendingJobsCount = async (queue: Queue) => {
     'prioritized'
   );
   return (
-    counts.waiting +
-    counts.active +
-    counts.delayed +
-    counts.paused +
-    counts.prioritized
+    counts.waiting + counts.active + counts.delayed + counts.paused + counts.prioritized
   );
 };
 
-export const waitForQueuesIdle = async (
-  timeoutMs = 60_000,
-  pollMs = 200
-) => {
+export const waitForQueuesIdle = async (timeoutMs = 60_000, pollMs = 200) => {
   const queueLite = new Queue(LITE_QUEUE_NAME, {
     connection: { url: REDIS_URL },
   });

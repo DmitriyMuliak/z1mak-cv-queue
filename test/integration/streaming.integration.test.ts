@@ -8,9 +8,9 @@ import {
   seedModelLimits,
   seedModelLimitsFull,
   waitForProcessedModel,
-  truncateCvAnalyzes,
   scopeUserId,
   TEST_DB_CONNECTION_STRING,
+  resetIntegrationState,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 
@@ -35,7 +35,7 @@ describe('Streaming, Fallback and DB Persistence Integration (Behavioral)', () =
   }, 120_000);
 
   beforeEach(async () => {
-    await Promise.all([redis.flushall(), truncateCvAnalyzes(pgClient)]);
+    await resetIntegrationState(redis, pgClient);
     await configureMockGemini({
       mode: 'success',
       text: '{"result": "ok"}',
