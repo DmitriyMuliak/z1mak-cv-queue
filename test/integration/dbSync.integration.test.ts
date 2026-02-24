@@ -7,7 +7,7 @@ import {
   createRedis,
   configureMockGemini,
   seedModelLimits,
-  truncateCvAnalyzes,
+  resetIntegrationState,
   TEST_DB_CONNECTION_STRING,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
@@ -33,14 +33,14 @@ describe('Database Synchronization Cron Job (Behavioral)', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await Promise.all([redis.flushall(), truncateCvAnalyzes(pgClient)]);
+    await resetIntegrationState(redis, pgClient);
     await configureMockGemini({
       mode: 'success',
       text: '{"result": "ok"}',
       status: 200,
       delayMs: 0,
     });
-  });
+  }, 60_000);
 
   it('automatically persists completed job result to PostgreSQL via cron', async () => {
     const modelId = 'flashLite';

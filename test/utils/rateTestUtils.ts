@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { v5 as uuidv5 } from 'uuid';
+import { Queue } from 'bullmq';
 import type { Client } from 'pg';
 import { redisKeys } from '../../src/redis/keys';
 import { parseSSE, ParsedSSEEvent } from '../helpers/sse-parser';
@@ -326,6 +327,70 @@ export const waitForProcessedModel = async (
 
 export const truncateCvAnalyzes = async (pgClient: Pick<Client, 'query'>) => {
   await pgClient.query('TRUNCATE TABLE cv_analyzes');
+};
+
+const LITE_QUEUE_NAME = process.env.BULLMQ_QUEUE_LITE ?? 'ai-jobs-lite';
+const HARD_QUEUE_NAME = process.env.BULLMQ_QUEUE_HARD ?? 'ai-jobs-hard';
+
+const getPendingJobsCount = async (queue: Queue) => {
+  const counts = await queue.getJobCounts(
+    'waiting',
+    'active',
+    'delayed',
+    'paused',
+    'prioritized'
+  );
+  return (
+    counts.waiting +
+    counts.active +
+    counts.delayed +
+    counts.paused +
+    counts.prioritized
+  );
+};
+
+export const waitForQueuesIdle = async (
+  timeoutMs = 60_000,
+  pollMs = 200
+) => {
+  const queueLite = new Queue(LITE_QUEUE_NAME, {
+    connection: { url: REDIS_URL },
+  });
+  const queueHard = new Queue(HARD_QUEUE_NAME, {
+    connection: { url: REDIS_URL },
+  });
+
+  try {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const [litePending, hardPending] = await Promise.all([
+        getPendingJobsCount(queueLite),
+        getPendingJobsCount(queueHard),
+      ]);
+
+      if (litePending === 0 && hardPending === 0) {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
+    throw new Error('Queues did not become idle before timeout');
+  } finally {
+    await Promise.allSettled([queueLite.close(), queueHard.close()]);
+  }
+};
+
+export const resetIntegrationState = async (
+  redis: Redis,
+  pgClient?: Pick<Client, 'query'>
+) => {
+  await waitForQueuesIdle();
+  if (pgClient) {
+    await Promise.all([redis.flushall(), truncateCvAnalyzes(pgClient)]);
+    return;
+  }
+  await redis.flushall();
 };
 
 // TODO: migrate to "testcontainers" package
