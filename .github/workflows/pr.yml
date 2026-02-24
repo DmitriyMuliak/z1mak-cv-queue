@@ -40,7 +40,7 @@ jobs:
       GEMINI_MOCK_PORT: '8080'
       GEMINI_BASE_URL: 'http://127.0.0.1:8080'
       GEMINI_MOCK_URL: 'http://127.0.0.1:8080'
-      DB_SYNC_INTERVAL_MS: '2000'
+      DB_SYNC_INTERVAL_MS: '1000'
       MODEL_PREFLIGHT_TIMEOUT_MS: '180000'
     steps:
       - name: Checkout
