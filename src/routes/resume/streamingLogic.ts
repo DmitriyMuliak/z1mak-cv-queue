@@ -16,9 +16,12 @@ export async function trySendFinishedResultFromRedis(
 ): Promise<boolean> {
   const result = await redis.hgetall(redisKeys.jobResult(jobId));
   if (result && Object.keys(result).length > 0) {
+    const status = result.status === 'failed' ? 'failed' : 'completed';
     await sendSSE(reply, jobId, 'snapshot', {
       content: parseMaybeJson(result.data),
-      status: 'completed',
+      status,
+      error: result.error,
+      code: result.error_code,
     });
     await sendSSE(reply, jobId, 'done', {});
     reply.raw.end();
@@ -44,7 +47,7 @@ export async function trySendFinishedResultFromDb(
 
   if (dbResult.rows.length > 0) {
     const row = dbResult.rows[0];
-    if (row.status === 'completed' || row.status === 'error') {
+    if (row.status === 'completed' || row.status === 'failed') {
       await sendSSE(reply, jobId, 'snapshot', {
         content: row.result,
         status: row.status,
@@ -79,7 +82,7 @@ export async function streamHistory(
 
   if (!lastEventId) {
     let fullContent = '';
-    let status = 'processing';
+    let status = 'in_progress';
     let finalId = startId;
 
     for (const [id, fields] of entries) {
@@ -88,11 +91,11 @@ export async function streamHistory(
       const parsed = JSON.parse(dataStr) as StreamEntry;
       if (parsed.type === 'chunk') fullContent += parsed.data;
       else if (parsed.type === 'done') status = 'completed';
-      else if (parsed.type === 'error') status = 'error';
+      else if (parsed.type === 'error') status = 'failed';
     }
 
     await sendSSE(reply, finalId, 'snapshot', { content: fullContent || null, status });
-    const isCompleted = status !== 'processing';
+    const isCompleted = status !== 'in_progress';
     if (isCompleted) {
       await sendSSE(reply, finalId, 'done', {});
       reply.raw.end();

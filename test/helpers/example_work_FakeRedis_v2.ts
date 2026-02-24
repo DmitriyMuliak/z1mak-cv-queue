@@ -37,7 +37,7 @@ export class FakeRedis {
     return [[key, newEntries.map((e) => [e.id, ['data', e.data]])]];
   });
 
-  public setupActiveJob(jobId: string, status = 'processing') {
+  public setupActiveJob(jobId: string, status = 'in_progress') {
     const metaKey = redisKeys.jobMeta(jobId);
     const streamKey = redisKeys.jobStream(jobId);
     this.metas.set(metaKey, { status, streaming: 'true' });

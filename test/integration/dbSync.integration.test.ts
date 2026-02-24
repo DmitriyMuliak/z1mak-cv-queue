@@ -7,10 +7,8 @@ import {
   createRedis,
   configureMockGemini,
   seedModelLimits,
-  waitForApi,
-  startCompose,
-  stopCompose,
-  TEST_DB_PORT,
+  truncateCvAnalyzes,
+  TEST_DB_CONNECTION_STRING,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 
@@ -20,27 +18,22 @@ describe('Database Synchronization Cron Job (Behavioral)', () => {
   let client: IntegrationTestClient;
 
   beforeAll(async () => {
-    await startCompose();
     redis = createRedis();
     client = new IntegrationTestClient();
 
     pgClient = new Client({
-      connectionString: `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres`,
+      connectionString: TEST_DB_CONNECTION_STRING,
     });
     await pgClient.connect();
-
-    await waitForApi();
   }, 180_000);
 
   afterAll(async () => {
     await pgClient?.end();
     await redis?.quit();
-    await stopCompose();
   }, 120_000);
 
   beforeEach(async () => {
-    await redis.flushall();
-    await pgClient.query('DELETE FROM cv_analyzes');
+    await Promise.all([redis.flushall(), truncateCvAnalyzes(pgClient)]);
     await configureMockGemini({
       mode: 'success',
       text: '{"result": "ok"}',

@@ -43,9 +43,9 @@ export class RedisBehavioralDriver {
   private streams = new Map<string, Array<{ id: string; data: string }>>();
 
   /**
-   * Sets up a job in an active state (queued or processing).
+   * Sets up a job in an active state (queued or in_progress).
    */
-  async setupActiveJob(jobId: string, status: 'queued' | 'processing' = 'processing') {
+  async setupActiveJob(jobId: string, status: 'queued' | 'in_progress' = 'in_progress') {
     const metaKey = redisKeys.jobMeta(jobId);
     await this.instance.hset(metaKey, {
       status,
@@ -53,7 +53,7 @@ export class RedisBehavioralDriver {
       updated_at: new Date().toISOString(),
     });
 
-    if (status === 'processing') {
+    if (status === 'in_progress') {
       const streamKey = redisKeys.jobStream(jobId);
       await this.instance.set(streamKey, 'active');
       if (!this.streams.has(streamKey)) this.streams.set(streamKey, []);
@@ -92,13 +92,23 @@ export class RedisBehavioralDriver {
   /**
    * Sets up a job that is already finished.
    */
-  async setupFinishedJob(jobId: string, resultData: any) {
+  async setupFinishedJob(
+    jobId: string,
+    resultData: any,
+    status: 'completed' | 'failed' = 'completed'
+  ) {
     const resultKey = redisKeys.jobResult(jobId);
-    await this.instance.hset(resultKey, {
-      status: 'completed',
-      data: JSON.stringify(resultData),
+    const payload: Record<string, string> = {
+      status,
       finished_at: new Date().toISOString(),
-    });
+    };
+    if (status === 'completed') {
+      payload.data = JSON.stringify(resultData);
+    } else {
+      payload.error = 'provider_failure';
+      payload.error_code = 'PROVIDER_ERROR';
+    }
+    await this.instance.hset(resultKey, payload);
   }
 
   /**
