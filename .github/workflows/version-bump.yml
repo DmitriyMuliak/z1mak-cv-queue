@@ -22,6 +22,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -40,25 +42,24 @@ jobs:
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Bump version
-        id: npm_version
+        # npm version without tag (tags will be created on merge)
         run: |
-          # npm version without tag (tags will be created on merge)
-          NEW_VERSION=$(npm version ${{ github.event.inputs.bump_type }} --no-git-tag-version)
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "v_name=$NEW_VERSION" >> $GITHUB_ENV
+          npm version ${{ github.event.inputs.bump_type }} --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          echo "v_name=v$VERSION" >> $GITHUB_ENV
 
-      - name: Commit changes
+      - name: Commit and Push
         run: |
           git add package.json package-lock.json
-          git commit -m "chore: bump version to ${{ env.v_name }}"
+          git commit -m "chore: bump version to ${{ env.v_name }} [skip ci]"
           git push origin ${{ env.branch_name }}
 
       - name: Create Pull Request
         run: |
           gh pr create \
             --title "chore: release ${{ env.v_name }}" \
-            --body "Automated version bump to ${{ env.v_name }}. Please merge this PR to apply changes." \
+            --body "Automated version bump. Tests skipped via job-level condition." \
             --base master \
             --head ${{ env.branch_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
