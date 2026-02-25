@@ -1,9 +1,9 @@
 name: Deploy to Fly
 
 on:
-  push:
-    branches:
-      - master
+  # push:
+  #   branches:
+  #     - master
   workflow_dispatch:
     inputs:
       version:
