@@ -15,8 +15,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Get current version
         id: get_version
@@ -24,16 +22,17 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=v$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check if tag exists
+      - name: Check if tag exists on remote
         id: check_tag
         run: |
-          if git rev-parse "${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+          # Перевіряємо існування тегу на origin без fetch
+          if git ls-remote --exit-code origin "refs/tags/${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Tag
+      - name: Create and Push Tag
         if: steps.check_tag.outputs.exists == 'false'
         run: |
           git config --global user.name "github-actions[bot]"
