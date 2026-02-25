@@ -5,6 +5,7 @@ on:
 
 jobs:
   checks:
+    if: "!startsWith(github.event.pull_request.title, 'chore: release')"
     runs-on: ubuntu-latest
     services:
       postgres:
