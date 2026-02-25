@@ -1,6 +1,6 @@
 {
   "name": "z1mak-cv-queue",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AI jobs API + worker service",
   "repository": {
     "type": "git",
