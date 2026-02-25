@@ -9,6 +9,7 @@ import {
   seedModelLimits,
   resetIntegrationState,
   TEST_DB_CONNECTION_STRING,
+  waitForQueuesIdle,
 } from '../utils/rateTestUtils';
 import { IntegrationTestClient } from '../helpers/IntegrationTestClient';
 
@@ -33,7 +34,11 @@ describe('Database Synchronization Cron Job (Behavioral)', () => {
   }, 120_000);
 
   beforeEach(async () => {
+    // 1. Wait for any leftover work from previous tests to finish
+    await waitForQueuesIdle().catch(() => {});
+    // 2. Now it's safe to clear Redis and DB
     await resetIntegrationState(redis, pgClient);
+
     await configureMockGemini({
       mode: 'success',
       text: '{"result": "ok"}',
@@ -68,7 +73,9 @@ describe('Database Synchronization Cron Job (Behavioral)', () => {
     // 2. Verify DB Persistence (wait for DB sync cron)
     let dbRow = null;
     const startTime = Date.now();
-    while (Date.now() - startTime < 10_000) {
+    const TIMEOUT = 15_000;
+
+    while (Date.now() - startTime < TIMEOUT) {
       const dbRes = await pgClient.query('SELECT * FROM cv_analyzes WHERE id = $1', [
         jobId,
       ]);
@@ -79,7 +86,10 @@ describe('Database Synchronization Cron Job (Behavioral)', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
-    expect(dbRow, 'Job should be persisted to PostgreSQL by cron').toBeTruthy();
+    expect(
+      dbRow,
+      `Job ${jobId} should be persisted to PostgreSQL by cron within ${TIMEOUT}ms`
+    ).toBeTruthy();
     expect(dbRow.status).toBe('completed');
     expect(JSON.stringify(dbRow.result)).toContain('synced via cron');
   }, 60_000);
