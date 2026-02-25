@@ -1,117 +1,139 @@
-# Frontend Integration Guide: Resilient Streaming (SSE)
+﻿# Frontend Integration Guide: Resilient Streaming (SSE)
 
-Цей документ описує, як інтегрувати клієнтську частину (React/Next.js) з новою архітектурою стрімінгу результатів аналізу CV.
+Цей документ описує актуальний контракт стрімінгу для `POST /resume/:id/result-stream`.
 
-## 1. Основна концепція: Universal Endpoint
+## 1. Базова ідея
 
-Ми використовуємо **один універсальний ендпоїнт** для отримання результатів:
-`POST /resume/:id/result-stream`
+Використовуйте один endpoint:
 
-Вам більше не потрібно окремо перевіряти статус (`/status`) перед підключенням. Ендпоїнт сам визначить, чи потрібно віддати готовий результат з БД, чи почати трансляцію з черги.
+- `POST /resume/:id/result-stream`
+
+Бекенд сам вирішує, що повернути:
+
+- фінальний результат з Redis/DB;
+- активний стрім (`chunk`);
+- стан черги (`queued`).
+
+Окремий pre-check через `/status` перед стрімом не потрібен.
 
 ## 2. Залежності
 
-Оскільки стандартний браузерний `EventSource` не підтримує метод **POST** та кастомні заголовки (Authorization), необхідно використовувати бібліотеку від Microsoft:
+Браузерний `EventSource` не підтримує `POST` і custom headers, тому використовуйте:
 
 ```bash
 npm install @microsoft/fetch-event-source
 ```
 
-Також для відображення структурованого JSON в реальному часі рекомендується:
+Для часткового рендеру JSON під час стріму можна додати:
 
 ```bash
 npm install json-repair
 ```
 
-## 3. Налаштування з'єднання
+## 3. Запит
 
-### Параметри запиту:
+- Method: `POST`
+- Headers: `Authorization: Bearer <token>`, `Content-Type: application/json`
+- Body: `{"lastEventId":"..."}` (опціонально, для відновлення після розриву)
 
-- **Method:** `POST`
-- **Headers:** `Authorization: Bearer <token>`, `Content-Type: application/json`
-- **Body:** `{"lastEventId": "..."}` (опціонально, для відновлення стріму)
+## 4. Контракт подій
 
-### Приклад коду:
+| Event | Призначення | Поля `data` |
+| :-- | :-- | :-- |
+| `snapshot` | Поточний стан або фінальний знімок | `content`, `status`, optional `error`, optional `code` |
+| `chunk` | Новий фрагмент тексту | `content` |
+| `done` | Стрім завершено | `{}` |
+| `error` | Помилка стрімінгу/сервера | `code`, `message` |
 
-```typescript
+### Допустимі статуси в `snapshot.status`
+
+- `queued`
+- `in_progress`
+- `completed`
+- `failed`
+
+Важливо:
+
+- `snapshot.status = failed` може прийти без `error`/`code` (наприклад, fallback з DB).
+- `snapshot.status = failed` може прийти разом з `error` і `code` (failed-результат у Redis).
+- Подія `error` і статус `failed` у `snapshot` це різні канали сигналізації, фронт має підтримувати обидва.
+
+## 5. Рекомендована обробка на фронті
+
+```ts
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+
+type JobStatus = 'queued' | 'in_progress' | 'completed' | 'failed';
 
 let fullText = '';
 
-const connectToStream = (jobId: string) => {
-  const lastId = localStorage.getItem(`lastId_${jobId}`);
+export async function connectToStream(jobId: string, token: string) {
+  const lastEventId = localStorage.getItem(`lastId_${jobId}`) ?? undefined;
 
-  fetchEventSource(`${API_URL}/resume/${jobId}/result-stream`, {
+  await fetchEventSource(`${API_URL}/resume/${jobId}/result-stream`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ lastEventId: lastId }),
+    body: JSON.stringify({ lastEventId }),
 
     onmessage(ev) {
-      // 1. Зберігаємо ID для відновлення при F5
       if (ev.id) localStorage.setItem(`lastId_${jobId}`, ev.id);
-
       const data = JSON.parse(ev.data);
 
       switch (ev.event) {
-        case 'snapshot':
-          // Повна історія (при F5 або завершеному джобі)
-          fullText = data.content || '';
-          updateUI(fullText, data.status);
+        case 'snapshot': {
+          const status = data.status as JobStatus;
+          fullText = data.content ?? '';
+          updateUI(fullText, status);
+
+          if (status === 'failed') {
+            handleError(
+              data.code ?? 'FAILED',
+              data.error ?? data.message ?? 'Analysis failed'
+            );
+          }
           break;
+        }
 
         case 'chunk':
-          // Новий шматочок тексту
-          fullText += data.content;
-          updateUI(fullText, 'processing');
+          fullText += data.content ?? '';
+          updateUI(fullText, 'in_progress');
           break;
 
         case 'done':
-          // Стрім завершено
-          console.log('Analysis finished');
+          onCompleted();
           break;
 
         case 'error':
-          // Помилка (напр. NOT_FOUND)
-          handleError(data.code, data.message);
+          handleError(data.code ?? 'STREAM_ERROR', data.message ?? 'Streaming failed');
           break;
       }
     },
 
     onerror(err) {
-      // Бібліотека автоматично зробить реконект
+      // fetch-event-source виконує reconnect автоматично
       console.error('Stream connection lost', err);
     },
   });
-};
+}
 ```
 
-## 4. Типи подій (Event Contract)
+## 6. Черга (Adaptive Polling)
 
-| Event          | Опис                                          | Поля в `data`                                             |
-| :------------- | :-------------------------------------------- | :-------------------------------------------------------- |
-| **`snapshot`** | Поточний стан (історія або готовий результат) | `content` (текст), `status` (queued/processing/completed) |
-| **`chunk`**    | Нова частина тексту від AI                    | `content` (лише новий шматок)                             |
-| **`done`**     | Технічний сигнал успішного завершення         | `{}`                                                      |
-| **`error`**    | Помилка на стороні сервера                    | `code` (напр. NOT_FOUND), `message`                       |
+Якщо job ще у черзі (`snapshot.status = queued`), сервер надсилає `snapshot` і одразу закриває з'єднання.
 
-## 5. Обробка черги (Adaptive Polling)
+Це нормальна поведінка. `fetch-event-source` зробить reconnect автоматично, поки статус не зміниться.
 
-Якщо робота знаходиться в черзі (`status: queued`), сервер надішле snapshot і **негайно розірве з'єднання**. Це зроблено для економії ресурсів.
-**Дія фронтенду:** Нічого робити не треба. `fetch-event-source` побачить розрив і автоматично перепідключиться через 5-10 секунд. Цей цикл триватиме, поки робота не перейде в статус `processing`.
+## 7. Відновлення після розриву
 
-## 6. Відображення структурованого JSON
+- Зберігайте останній `ev.id` у `localStorage` або `sessionStorage`.
+- Передавайте його у `lastEventId` при наступному підключенні.
+- Бекенд віддасть пропущені події.
 
-Оскільки AI надсилає JSON частинами, `fullText` часто буде невалідним (незакриті дужки). Щоб рендерити картки та оцінки до завершення стріму:
+## 8. Що оновити у старому фронт-коді
 
-1.  Використовуйте `json-repair` для "лагодження" `fullText`.
-2.  Парсіть результат: `const partialData = JSON.parse(jsonRepair(fullText))`.
-3.  Рендеріть UI на основі `partialData`.
-
-## 7. Відновлення після розриву (Resilience)
-
-1.  Завжди зберігайте останній `ev.id` у `localStorage` або `sessionStorage`.
-2.  При створенні нового з'єднання (після F5) передавайте цей ID у полі `lastEventId`.
-3.  Бекенд автоматично надішле лише ті чанки, які ви пропустили.
+- Замінити `processing` -> `in_progress`.
+- Додати обробку `snapshot.status === 'failed'`.
+- Читати `snapshot.error` та `snapshot.code` як optional.

@@ -45,19 +45,27 @@ export class ModelProviderService {
     }
   }
 
-  executeStream(payload: ModelJobPayload): AsyncIterableIterator<string> {
+  async *executeStream(payload: ModelJobPayload): AsyncIterableIterator<string> {
     try {
-      return this.modelProvider.generateStream({
+      const stream = this.modelProvider.generateStream({
         model: payload.model,
         cvDescription: payload.cvDescription,
         jobDescription: payload.jobDescription,
         mode: payload.mode,
         locale: payload.locale,
       });
+
+      for await (const chunk of stream) {
+        yield chunk;
+      }
     } catch (error) {
       const retryable = this.modelProvider.isRetryableError(error);
       (error as Record<string, unknown>).retryable = retryable;
       throw error;
     }
+  }
+
+  isRetryableError(error: unknown): boolean {
+    return this.modelProvider.isRetryableError(error);
   }
 }

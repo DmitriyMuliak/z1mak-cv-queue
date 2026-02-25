@@ -1,40 +1,68 @@
 import { execSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
+import { v5 as uuidv5 } from 'uuid';
+import { Queue } from 'bullmq';
+import type { Client } from 'pg';
 import { redisKeys } from '../../src/redis/keys';
 import { parseSSE, ParsedSSEEvent } from '../helpers/sse-parser';
 import type { Mode } from '../../src/types/mode';
 
 export const composeRequested = process.env.TEST_USE_COMPOSE !== '0';
-export const dockerAvailable = (() => {
-  try {
-    execSync('docker info', { stdio: 'ignore' });
-    return true;
-  } catch {
-    console.error('[rateTestUtils] Docker is not available');
-    return false;
-  }
-})();
+export const dockerAvailable = composeRequested
+  ? (() => {
+      try {
+        execSync('docker info', { stdio: 'ignore' });
+        return true;
+      } catch {
+        console.error('[rateTestUtils] Docker is not available');
+        return false;
+      }
+    })()
+  : false;
 
 export const usingCompose = composeRequested && dockerAvailable;
 export const composeFile = process.env.COMPOSE_FILE ?? 'docker-compose.test.yml';
+const runScope = process.env.TEST_RUN_SCOPE ?? randomUUID().slice(0, 8);
+const TEST_USER_ID_NAMESPACE = '5f5b4f50-8b5a-4e74-9678-4c6a63f7c391';
 
 const poolId = Number(process.env.VITEST_POOL_ID ?? 0);
-const offset = poolId * 100;
+// Integration tests run with a shared runtime (global setup), so ports must stay stable
+// across setup and workers. Enable pool-based offset only when explicitly requested.
+const usePoolOffset = process.env.TEST_USE_POOL_OFFSET === '1';
+const offset = usePoolOffset ? poolId * 100 : 0;
 
 const TEST_API_PORT = 4000 + offset;
 const TEST_REDIS_PORT = 6379 + offset;
 const TEST_MOCK_GEMINI_PORT = 8080 + offset;
-export const TEST_DB_PORT = 54321 + offset;
+const TEST_DB_PORT_DEFAULT = 54321 + offset;
+export const TEST_DB_PORT = Number(process.env.TEST_DB_PORT ?? TEST_DB_PORT_DEFAULT);
+const TEST_DB_CONNECTION_STRING_DEFAULT = `postgresql://postgres:postgres@127.0.0.1:${TEST_DB_PORT}/postgres`;
 
-export const PROJECT_NAME = `cv-queue-test-${poolId}`; // docker ps --filter "name=cv-queue-test"
+// docker ps --filter "name=cv-queue-test"
+export const PROJECT_NAME = usePoolOffset ? `cv-queue-test-${poolId}` : 'cv-queue-test';
 
-export const API_URL = process.env.TEST_API_URL ?? `http://127.0.0.1:${TEST_API_PORT}`;
+export const API_URL =
+  process.env.TEST_API_URL ??
+  (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : undefined) ??
+  `http://127.0.0.1:${TEST_API_PORT}`;
 export const REDIS_URL =
-  process.env.TEST_REDIS_URL ?? `redis://127.0.0.1:${TEST_REDIS_PORT}`;
+  process.env.TEST_REDIS_URL ??
+  process.env.REDIS_URL ??
+  `redis://127.0.0.1:${TEST_REDIS_PORT}`;
 export const GEMINI_MOCK_CONFIG_URL =
   process.env.GEMINI_MOCK_CONFIG_URL ??
+  (process.env.GEMINI_MOCK_URL ? `${process.env.GEMINI_MOCK_URL}/__config` : undefined) ??
   `http://127.0.0.1:${TEST_MOCK_GEMINI_PORT}/__config`;
-export const INTERNAL_KEY = process.env.TEST_INTERNAL_KEY ?? 'internal-secret';
+export const INTERNAL_KEY =
+  process.env.TEST_INTERNAL_KEY ?? process.env.INTERNAL_API_KEY ?? 'internal-secret';
+export const TEST_DB_CONNECTION_STRING =
+  process.env.TEST_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  TEST_DB_CONNECTION_STRING_DEFAULT;
+export const scopeValue = (value: string) => `${value}-${runScope}`;
+export const scopeUserId = (value: string) =>
+  uuidv5(scopeValue(value), TEST_USER_ID_NAMESPACE);
 
 const DEFAULT_MODEL_API_NAMES: Record<string, string> = {
   flash3: 'gemini-1.5-pro',
@@ -295,6 +323,71 @@ export const waitForProcessedModel = async (
   return result.used_model ?? result.processed_model ?? null;
 };
 
+export const truncateCvAnalyzes = async (pgClient: Pick<Client, 'query'>) => {
+  await pgClient.query('TRUNCATE TABLE cv_analyzes');
+};
+
+const LITE_QUEUE_NAME = process.env.BULLMQ_QUEUE_LITE ?? 'ai-jobs-lite';
+const HARD_QUEUE_NAME = process.env.BULLMQ_QUEUE_HARD ?? 'ai-jobs-hard';
+
+const getPendingJobsCount = async (queue: Queue) => {
+  const counts = await queue.getJobCounts(
+    'waiting',
+    'active',
+    'delayed',
+    'paused',
+    'prioritized'
+  );
+  return (
+    counts.waiting + counts.active + counts.delayed + counts.paused + counts.prioritized
+  );
+};
+
+export const waitForQueuesIdle = async (timeoutMs = 10_000, pollMs = 200) => {
+  const queueLite = new Queue(LITE_QUEUE_NAME, {
+    connection: { url: REDIS_URL },
+  });
+  const queueHard = new Queue(HARD_QUEUE_NAME, {
+    connection: { url: REDIS_URL },
+  });
+
+  try {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const [litePending, hardPending] = await Promise.all([
+        getPendingJobsCount(queueLite),
+        getPendingJobsCount(queueHard),
+      ]);
+
+      if (litePending === 0 && hardPending === 0) {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
+    throw new Error('Queues did not become idle before timeout');
+  } finally {
+    await Promise.allSettled([queueLite.close(), queueHard.close()]);
+  }
+};
+
+export const resetIntegrationState = async (
+  redis: Redis,
+  pgClient?: Pick<Client, 'query'>
+) => {
+  // 1. Force clear everything in Redis first
+  await redis.flushall();
+
+  // 2. Clear database if client provided
+  if (pgClient) {
+    await truncateCvAnalyzes(pgClient);
+  }
+
+  // 3. Optional: small wait to ensure BullMQ internal timers in the app process settle
+  // (but don't wait for queue completion as it may take too long)
+};
+
 // TODO: migrate to "testcontainers" package
 export const startCompose = async () => {
   if (!usingCompose) return;
@@ -316,7 +409,6 @@ export const startCompose = async () => {
       env,
     }
   );
-  await waitForApi();
 };
 
 // docker compose -p cv-queue-test-0 down -v

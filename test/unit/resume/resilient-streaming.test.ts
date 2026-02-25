@@ -48,7 +48,7 @@ describe('Resilient Streaming Logic (Behavioral with ioredis-mock)', () => {
 
   it('Scenario: User resumes connection and gets consolidated snapshot', async () => {
     const jobId = 'job-history';
-    await redisDriver.setupActiveJob(jobId, 'processing');
+    await redisDriver.setupActiveJob(jobId, 'in_progress');
     await redisDriver.pushToStream(jobId, 'chunk', 'Hello ');
     await redisDriver.pushToStream(jobId, 'chunk', 'World');
     await redisDriver.pushToStream(jobId, 'done');
@@ -63,7 +63,7 @@ describe('Resilient Streaming Logic (Behavioral with ioredis-mock)', () => {
     const jobId = 'job-zombie';
     const streamKey = redisKeys.jobStream(jobId);
 
-    await redisDriver.setupActiveJob(jobId, 'processing');
+    await redisDriver.setupActiveJob(jobId, 'in_progress');
 
     // We break the loop by making exists return 0 on the second loop check
     let existsCalls = 0;

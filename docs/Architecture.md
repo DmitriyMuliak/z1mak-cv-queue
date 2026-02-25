@@ -45,7 +45,7 @@ flowchart TD
     STREAM --> B
     B -->|SSE Response| A
     P --> R2[Redis Job Result]
-    R2 --> CRON[DB Sync Cron\nEvery 30 Seconds]
+    R2 --> CRON[DB Sync Cron\nEvery 5 Minutes]
     CRON --> DB[(Persistent DB)]
 ```
 
@@ -198,7 +198,7 @@ flowchart TD
 
 # 📦 10. **DB Sync Architecture**
 
-Cron ($\text{30 seconds}$):
+Cron ($\text{5 minutes}$):
 
 1. `SCAN job:*:result` in batches.
 2. merge($\text{meta} + \text{result}$).

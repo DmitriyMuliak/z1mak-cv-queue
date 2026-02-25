@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (tag or branch) to deploy. Leave empty for latest tag.'
+        required: false
+        default: ''
 
 jobs:
   deploy:
@@ -11,8 +17,74 @@ jobs:
     runs-on: ubuntu-latest
     # Prevent concurrent deployments if you push twice in a row
     concurrency: deploy-group
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PORT: '4000'
+      REDIS_URL: 'redis://127.0.0.1:6379'
+      REDIS_FAMILY: '4'
+      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
+      INTERNAL_API_KEY: 'internal-secret'
+      TEST_USE_COMPOSE: '0'
+      GEMINI_API_KEY: 'dummy'
+      GEMINI_MOCK_PORT: '8080'
+      GEMINI_BASE_URL: 'http://127.0.0.1:8080'
+      GEMINI_MOCK_URL: 'http://127.0.0.1:8080'
+      DB_SYNC_INTERVAL_MS: '1000'
+      MODEL_PREFLIGHT_TIMEOUT_MS: '180000'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (minimal)
+        uses: actions/checkout@v4
+
+      - name: Determine Target Ref
+        id: determine_ref
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "Verifying provided version: ${{ github.event.inputs.version }}"
+            # Check if it's a valid ref (branch or tag) on remote without downloading objects
+            if ! git ls-remote --exit-code origin "${{ github.event.inputs.version }}" > /dev/null 2>&1 && \
+               ! git ls-remote --exit-code origin "refs/tags/${{ github.event.inputs.version }}" > /dev/null 2>&1; then
+              echo "::error::Version '${{ github.event.inputs.version }}' not found on remote (branch or tag)."
+              exit 1
+            fi
+            echo "target=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "No version provided. Fetching tags to find the latest release..."
+            git fetch --tags --quiet
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            if [ -z "$TAG" ]; then
+              echo "::error::No tags found in repository and no version provided. Deployment aborted."
+              exit 1
+            fi
+            echo "Latest tag found: $TAG"
+            echo "target=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout Target Version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.determine_ref.outputs.target }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -23,17 +95,29 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build & Test
-        run: |
-          npm run lint
-          npm run build
-          npm run test
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Apply integration migrations
+        run: npm run test:db:migrate
+
+      - name: Integration tests
+        env:
+          HEALTH_RETRIES: '90'
+          HEALTH_SLEEP_SECONDS: '1'
+          CI_LOG_DIR: '/tmp'
+        run: node scripts/ci/run-integration-tests.mjs
 
       - name: Setup Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy
-        # Use rolling strategy for smooth instance replacement
         run: flyctl deploy --remote-only --wait-timeout 300
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

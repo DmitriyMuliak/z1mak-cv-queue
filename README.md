@@ -91,7 +91,7 @@ flowchart LR
   - On success: Worker adds `{"type":"done"}` to the stream, writes full result to Redis `job:{id}:result`, and updates metadata.
   - On failure: Worker adds `{"type":"error"}` to the stream, triggers token refund (if AI wasn't reached), and marks status as `failed`.
 
-### **3) DB Synchronization (Cron every 30s)**
+### **3) DB Synchronization (Cron every 5 min)**
 
 - **SCAN `job:*:result`**: Collects all completed jobs.
 - **Persistence**: Batch upsert results into the persistent Database.
@@ -243,7 +243,7 @@ Checks:
 
 # ⏱ 7. Cron Tasks
 
-## **DB Sync Cron (every 30s)**
+## **DB Sync Cron (every 5 min)**
 
 1. SCAN `job:*:result`.
 2. Batch write to DB.

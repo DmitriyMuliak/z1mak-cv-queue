@@ -1,7 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
 import { SchemaService } from '../../schema/SchemaService';
 import type { Mode } from '../../../types/mode';
-import { extractMessage, extractStatus, isContextTooLong } from '../../utils/errorUtils';
+import {
+  extractMessage,
+  extractStatus,
+  isContextTooLong,
+  isNetworkError,
+} from '../../utils/errorUtils';
 import { buildPromptSettings } from './builders/buildPromptSettings';
 import { safetySettings } from './builders/safetySettings';
 import {
@@ -128,6 +133,10 @@ export class GeminiProvider {
   }
 
   isRetryableError(error: unknown): boolean {
+    if (isNetworkError(error)) {
+      return true;
+    }
+
     const status = extractStatus(error);
     const code = extractGeminiErrorCode(error);
     const message = extractMessage(error);

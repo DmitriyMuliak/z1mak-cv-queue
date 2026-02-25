@@ -22,7 +22,7 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_BASE_URL: 'http://mock-gemini:8080'
-      DB_SYNC_INTERVAL_MS: '2000'
+      DB_SYNC_INTERVAL_MS: '1000'
     ports:
       - "${TEST_API_PORT:-4000}:4000"
     depends_on:
@@ -49,7 +49,6 @@ services:
       GEMINI_API_KEY: 'dummy'
       INTERNAL_API_KEY: 'internal-secret'
       GEMINI_MOCK_URL: 'http://mock-gemini:8080'
-      DB_SYNC_INTERVAL_MS: '2000'
     depends_on:
       - redis
       - db

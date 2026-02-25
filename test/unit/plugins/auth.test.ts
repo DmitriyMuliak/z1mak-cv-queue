@@ -80,8 +80,9 @@ describe('auth plugin', () => {
   });
 
   it('responds 401 on invalid signature', async () => {
-    // Corrupt signature
-    const token = signToken().replace(/.$/, 'x');
+    // Corrupt signature deterministically (avoid flaky no-op replacement).
+    const [header, payload, signature] = signToken().split('.');
+    const token = `${header}.${payload}.${signature}invalid`;
 
     const res = await app.inject({
       method: 'GET',

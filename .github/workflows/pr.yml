@@ -6,6 +6,42 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PORT: '4000'
+      REDIS_URL: 'redis://127.0.0.1:6379'
+      REDIS_FAMILY: '4'
+      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
+      INTERNAL_API_KEY: 'internal-secret'
+      TEST_USE_COMPOSE: '0'
+      GEMINI_API_KEY: 'dummy'
+      GEMINI_MOCK_PORT: '8080'
+      GEMINI_BASE_URL: 'http://127.0.0.1:8080'
+      GEMINI_MOCK_URL: 'http://127.0.0.1:8080'
+      DB_SYNC_INTERVAL_MS: '1000'
+      MODEL_PREFLIGHT_TIMEOUT_MS: '180000'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,3 +58,12 @@ jobs:
         run: npm run build
       - name: Unit tests
         run: npm run test:unit
+      - name: Apply integration migrations
+        run: npm run test:db:migrate
+      - name: Integration tests
+        # run: bash scripts/ci/run-integration-tests.sh
+        env:
+          HEALTH_RETRIES: '90'
+          HEALTH_SLEEP_SECONDS: '1'
+          CI_LOG_DIR: '/tmp'
+        run: node scripts/ci/run-integration-tests.mjs

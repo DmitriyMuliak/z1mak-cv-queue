@@ -111,6 +111,7 @@ export const createQueueEventsRegistrar = ({
           type: 'error',
           code: errorCode,
           message: reason,
+          retryable: false,
         });
         pipe.xadd(streamKey, '*', 'data', errorMsg);
         pipe.expire(streamKey, STREAM_TTL_COMPLETED);
