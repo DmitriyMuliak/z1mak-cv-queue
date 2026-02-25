@@ -1,6 +1,7 @@
 name: Deploy to Fly
 
 on:
+  # Only manual deploy is supported
   # push:
   #   branches:
   #     - master
