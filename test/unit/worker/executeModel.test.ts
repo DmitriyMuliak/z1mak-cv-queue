@@ -1,10 +1,9 @@
-import { describe, it, expect, vi, beforeEach, type Mocked } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createExecuteModel } from '../../../src/worker/executeModel';
 import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 import { redisKeys } from '../../../src/redis/keys';
 import type { Job } from 'bullmq';
 import type { JobPayload } from '../../../src/worker/types';
-import type { ModelProvider } from '../../../src/ai/ModelProviderService';
 
 interface MockError extends Error {
   code?: string;
@@ -12,7 +11,7 @@ interface MockError extends Error {
 
 describe('executeModel with streaming (Behavioral)', () => {
   let redisDriver: RedisBehavioralDriver;
-  let modelProvider: Mocked<ModelProvider>;
+  let modelProvider: any; // ModelProviderService
   let executeModel: ReturnType<typeof createExecuteModel>;
 
   beforeEach(async () => {
@@ -20,12 +19,10 @@ describe('executeModel with streaming (Behavioral)', () => {
     await redisDriver.instance.flushall();
 
     modelProvider = {
-      execute: vi.fn(),
-      generateStream: vi.fn(),
-      generate: vi.fn(),
+      executeStream: vi.fn(),
       isRetryableError: vi.fn().mockReturnValue(true),
-    } as unknown as Mocked<ModelProvider>;
-    executeModel = createExecuteModel(modelProvider as any, redisDriver.instance);
+    };
+    executeModel = createExecuteModel(modelProvider, redisDriver.instance);
   });
 
   it('streams chunks and adds to redis stream when streaming is enabled', async () => {
@@ -49,7 +46,7 @@ describe('executeModel with streaming (Behavioral)', () => {
 
     await redisDriver.setupModelLimits('gemini-flash', 100, 100);
 
-    modelProvider.generateStream.mockImplementation(async function* () {
+    modelProvider.executeStream.mockImplementation(async function* () {
       yield 'chunk1';
       yield 'chunk2';
     });
@@ -98,7 +95,7 @@ describe('executeModel with streaming (Behavioral)', () => {
     const streamError = new Error('Stream failed') as MockError;
     streamError.code = 'STREAM_ERR';
 
-    modelProvider.generateStream.mockImplementation(async function* () {
+    modelProvider.executeStream.mockImplementation(async function* () {
       yield 'chunk1';
       throw streamError;
     });
