@@ -45,6 +45,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const startProcess = async (name, args, logPath, env = process.env) => {
   await mkdir(path.dirname(logPath), { recursive: true });
   const logStream = createWriteStream(logPath, { flags: 'w' });
+
+  await new Promise((resolve, reject) => {
+    logStream.once('open', resolve);
+    logStream.once('error', reject);
+  });
+
   const child = spawn(process.execPath, args, {
     env,
     stdio: ['ignore', logStream, logStream],
