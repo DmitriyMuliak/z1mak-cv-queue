@@ -21,6 +21,7 @@ export interface SSEData {
   status?: string;
   code?: string;
   message?: string;
+  retryable?: boolean;
   [key: string]: unknown;
 }
 

@@ -1,12 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mocked } from 'vitest';
 import { createExecuteModel } from '../../../src/worker/executeModel';
 import { RedisBehavioralDriver } from '../../helpers/RedisBehavioralDriver';
 import { redisKeys } from '../../../src/redis/keys';
+import type { Job } from 'bullmq';
+import type { JobPayload } from '../../../src/worker/types';
+import type { ModelProvider } from '../../../src/ai/ModelProviderService';
+
+interface MockError extends Error {
+  code?: string;
+}
 
 describe('executeModel with streaming (Behavioral)', () => {
   let redisDriver: RedisBehavioralDriver;
-  let modelProvider: any;
-  let executeModel: any;
+  let modelProvider: Mocked<ModelProvider>;
+  let executeModel: ReturnType<typeof createExecuteModel>;
 
   beforeEach(async () => {
     redisDriver = new RedisBehavioralDriver();
@@ -14,29 +21,35 @@ describe('executeModel with streaming (Behavioral)', () => {
 
     modelProvider = {
       execute: vi.fn(),
-      executeStream: vi.fn(),
-    };
-    executeModel = createExecuteModel(modelProvider, redisDriver.instance);
+      generateStream: vi.fn(),
+      generate: vi.fn(),
+      isRetryableError: vi.fn().mockReturnValue(true),
+    } as unknown as Mocked<ModelProvider>;
+    executeModel = createExecuteModel(modelProvider as any, redisDriver.instance);
   });
 
   it('streams chunks and adds to redis stream when streaming is enabled', async () => {
     const jobId = 'job-streaming';
-    const job: any = {
+    const job = {
       id: jobId,
       data: {
         model: 'gemini-flash',
         payload: {
           cvDescription: 'cv',
-          mode: 'lite',
+          mode: {
+            evaluationMode: 'general',
+            domain: 'it',
+            depth: 'standard',
+          },
           locale: 'en',
         },
         streaming: true,
       },
-    };
+    } as Job<JobPayload>;
 
     await redisDriver.setupModelLimits('gemini-flash', 100, 100);
 
-    modelProvider.executeStream.mockImplementation(async function* () {
+    modelProvider.generateStream.mockImplementation(async function* () {
       yield 'chunk1';
       yield 'chunk2';
     });
@@ -63,25 +76,29 @@ describe('executeModel with streaming (Behavioral)', () => {
 
   it('adds error to stream and rethrows when stream fails', async () => {
     const jobId = 'job-error';
-    const job: any = {
+    const job = {
       id: jobId,
       data: {
         model: 'gemini-flash',
         payload: {
           cvDescription: 'cv',
-          mode: 'lite',
+          mode: {
+            evaluationMode: 'general',
+            domain: 'it',
+            depth: 'standard',
+          },
           locale: 'en',
         },
         streaming: true,
       },
-    };
+    } as Job<JobPayload>;
 
     await redisDriver.setupModelLimits('gemini-flash', 100, 100);
 
-    const streamError = new Error('Stream failed');
-    (streamError as any).code = 'STREAM_ERR';
+    const streamError = new Error('Stream failed') as MockError;
+    streamError.code = 'STREAM_ERR';
 
-    modelProvider.executeStream.mockImplementation(async function* () {
+    modelProvider.generateStream.mockImplementation(async function* () {
       yield 'chunk1';
       throw streamError;
     });
@@ -97,6 +114,7 @@ describe('executeModel with streaming (Behavioral)', () => {
       type: 'error',
       code: 'STREAM_ERR',
       message: 'Stream failed',
+      retryable: true,
     });
 
     const streamTtl = await redisDriver.instance.ttl(streamKey);

@@ -1,6 +1,6 @@
 {
   "name": "z1mak-cv-queue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI jobs API + worker service",
   "repository": {
     "type": "git",
@@ -22,6 +22,7 @@
     "format": "prettier --check \"**/*.{ts,js,json,md}\"",
     "format:write": "prettier --write \"**/*.{ts,js,json,md}\"",
     "fix": "npm run lint -- --fix && npm run format:write",
+    "tsc": "tsc",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run -c vitest.integration.config.ts test/integration",
     "test:db:migrate": "tsx test/database/applyMigrations.ts",

@@ -62,11 +62,13 @@ export const createExecuteModel = (
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode = (error as Record<string, any>)?.code || 'UNKNOWN_ERROR';
+      const retryable = modelProvider.isRetryableError(error);
 
       const errorMsg = JSON.stringify({
         type: 'error',
         code: errorCode,
         message: errorMessage,
+        retryable,
       });
 
       await redis
