@@ -51,7 +51,7 @@ jobs:
       - name: Commit and Push
         run: |
           git add package.json package-lock.json
-          git commit -m "chore: bump version to ${{ env.v_name }} [skip ci]"
+          git commit -m "chore: bump version to ${{ env.v_name }}"
           git push origin ${{ env.branch_name }}
 
       - name: Create Pull Request
