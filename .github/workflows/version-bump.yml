@@ -21,9 +21,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -35,10 +32,32 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version
+      - name: Create Bump Branch
         run: |
-          npm version ${{ github.event.inputs.bump_type }} -m "chore: bump version to %s [skip ci]"
+          BRANCH_NAME="chore/bump-version-$(date +%s)"
+          git checkout -b "$BRANCH_NAME"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
 
-      - name: Push changes
+      - name: Bump version
+        id: npm_version
         run: |
-          git push origin master --follow-tags
+          # npm version without tag (tags will be created on merge)
+          NEW_VERSION=$(npm version ${{ github.event.inputs.bump_type }} --no-git-tag-version)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "v_name=$NEW_VERSION" >> $GITHUB_ENV
+
+      - name: Commit changes
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to ${{ env.v_name }}"
+          git push origin ${{ env.branch_name }}
+
+      - name: Create Pull Request
+        run: |
+          gh pr create \
+            --title "chore: release ${{ env.v_name }}" \
+            --body "Automated version bump to ${{ env.v_name }}. Please merge this PR to apply changes." \
+            --base master \
+            --head ${{ env.branch_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
