@@ -376,16 +376,16 @@ export const resetIntegrationState = async (
   redis: Redis,
   pgClient?: Pick<Client, 'query'>
 ) => {
-  // 1. Force clear everything in Redis first
-  await redis.flushall();
-
-  // 2. Clear database if client provided
+  // 1. Clear database if client provided
   if (pgClient) {
     await truncateCvAnalyzes(pgClient);
   }
 
-  // 3. Optional: small wait to ensure BullMQ internal timers in the app process settle
-  // (but don't wait for queue completion as it may take too long)
+  // 2. Force clear everything in Redis
+  await redis.flushall();
+
+  // 3. Small wait to ensure BullMQ internal state and timers settle
+  await new Promise((resolve) => setTimeout(resolve, 500));
 };
 
 // TODO: migrate to "testcontainers" package
