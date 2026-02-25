@@ -116,13 +116,14 @@ const runCommand = (command, args) =>
 const printLogs = async () => {
   console.error('Integration runtime logs:');
   for (const proc of managed) {
-    console.error(`--- ${proc.name} ---`);
+    console.log(`::group::Runtime logs for ${proc.name}`);
     try {
       const data = await readFile(proc.logPath, 'utf8');
-      process.stderr.write(data);
+      process.stdout.write(data);
     } catch (err) {
       console.error(`Failed to read log ${proc.logPath}:`, err);
     }
+    console.log(`::endgroup::`);
   }
 };
 
