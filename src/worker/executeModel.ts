@@ -41,7 +41,7 @@ export const createExecuteModel = (
         const message = JSON.stringify({ type: 'chunk', data: chunk });
 
         if (isFirstChunk) {
-          redis
+          await redis
             .pipeline()
             .xadd(streamKey, '*', 'data', message)
             .expire(streamKey, STREAM_TTL_SAFETY)

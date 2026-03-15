@@ -95,4 +95,39 @@ describe('Resilient Streaming Logic (Behavioral with ioredis-mock)', () => {
 
     expect(events).toEmitSnapshot({ content: { text: 'db-val' } });
   });
+
+  it('Queued job snapshot uses SSE id "0" not jobId', async () => {
+    const jobId = 'job-queued-id-check';
+    await redisDriver.setupActiveJob(jobId, 'queued');
+
+    const { events } = await driver.getStream(jobId);
+
+    const snapshot = events.find((e: any) => e.event === 'snapshot');
+    expect(snapshot).toBeDefined();
+    expect(snapshot!.id).toBe('0');
+  });
+
+  it('Invalid lastEventId format returns 400', async () => {
+    const jobId = 'job-invalid-cursor';
+    const { status } = await driver.getStream(jobId, 'not-a-stream-id');
+
+    expect(status).toBe(400);
+  });
+
+  it('History aggregation forwards error code and message in snapshot', async () => {
+    const jobId = 'job-error-history';
+    await redisDriver.setupActiveJob(jobId, 'in_progress');
+    await redisDriver.pushToStream(jobId, 'error', {
+      code: 'PROVIDER_ERROR',
+      message: 'AI provider failed',
+    });
+
+    const { events } = await driver.getStream(jobId);
+
+    const snapshot = events.find((e: any) => e.event === 'snapshot');
+    expect(snapshot).toBeDefined();
+    expect(snapshot!.data.status).toBe('failed');
+    expect(snapshot!.data.code).toBe('PROVIDER_ERROR');
+    expect(snapshot!.data.message).toBe('AI provider failed');
+  });
 });

@@ -37,7 +37,7 @@ export class ResumeTestDriver {
       method: 'POST',
       url: `/resume/${jobId}/result-stream`,
       headers: this.defaultHeaders,
-      payload: { lastEventId },
+      payload: lastEventId ? { lastEventId } : {},
     });
 
     return {

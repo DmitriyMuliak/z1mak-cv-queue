@@ -48,7 +48,7 @@ export const RecentUserQuerySchema = Type.Object(
 );
 
 export const StreamJobBodySchema = Type.Object({
-  lastEventId: Type.Optional(Type.String()),
+  lastEventId: Type.Optional(Type.String({ pattern: '^\\d+-\\d+$' })),
 });
 
 export type RunAiJobBody = Static<typeof RunAiJobBodySchema>;

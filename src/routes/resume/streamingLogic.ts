@@ -23,7 +23,11 @@ export async function trySendFinishedResultFromRedis(
       error: result.error,
       code: result.error_code,
     });
-    await sendSSE(reply, jobId, 'done', {});
+    await sendSSE(reply, jobId, 'done', {
+      status,
+      usedModel: result.used_model,
+      finishedAt: result.finished_at,
+    });
     reply.raw.end();
     return true;
   }
@@ -39,6 +43,7 @@ export async function trySendFinishedResultFromDb(
   reply: FastifyReply
 ): Promise<boolean> {
   const dbResult = await db.withUserContext(request.user, async (client) => {
+    await client.query('SET LOCAL statement_timeout = 5000');
     return client.query<Pick<CvAnalyzes, 'status' | 'result' | 'error' | 'finished_at'>>(
       'SELECT status, result, error, finished_at FROM cv_analyzes WHERE id = $1',
       [jobId]
@@ -84,6 +89,8 @@ export async function streamHistory(
     let fullContent = '';
     let status = 'in_progress';
     let finalId = startId;
+    let errorCode: string | undefined;
+    let errorMessage: string | undefined;
 
     for (const [id, fields] of entries) {
       finalId = id;
@@ -91,13 +98,21 @@ export async function streamHistory(
       const parsed = JSON.parse(dataStr) as StreamEntry;
       if (parsed.type === 'chunk') fullContent += parsed.data;
       else if (parsed.type === 'done') status = 'completed';
-      else if (parsed.type === 'error') status = 'failed';
+      else if (parsed.type === 'error') {
+        status = 'failed';
+        errorCode = parsed.code;
+        errorMessage = parsed.message;
+      }
     }
 
-    await sendSSE(reply, finalId, 'snapshot', { content: fullContent || null, status });
+    await sendSSE(reply, finalId, 'snapshot', {
+      content: fullContent || null,
+      status,
+      ...(status === 'failed' && { code: errorCode, message: errorMessage }),
+    });
     const isCompleted = status !== 'in_progress';
     if (isCompleted) {
-      await sendSSE(reply, finalId, 'done', {});
+      await sendSSE(reply, finalId, 'done', { status });
       reply.raw.end();
     }
     return { lastId: finalId, isCompleted };
@@ -145,10 +160,10 @@ export async function handleActiveStreaming(
 
   // Adaptive Polling: if not streaming or still in queue, send status and end
   if (!isStreamingJob || (isQueued && streamExists === 0)) {
-    await sendSSE(reply, jobId, 'snapshot', {
+    await sendSSE(reply, '0', 'snapshot', {
       content: null,
       status: meta.status || 'queued',
-    });
+    }, 5000);
     reply.raw.end();
     return true;
   }
