@@ -1,0 +1,131 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "Bash(npm:*)",
+      "Bash(yarn:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(git:*)",
+      "Bash(eslint:*)",
+      "Bash(prettier:*)",
+      "Bash(tsc:*)",
+      "Bash(jest:*)",
+      "Bash(vitest:*)",
+      "Bash(webpack:*)",
+      "Bash(vite:*)"
+    ],
+    "deny": [
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf:*)"
+    ],
+    "defaultMode": "allowEdits"
+  },
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "60000",
+    "BASH_MAX_OUTPUT_LENGTH": "20000",
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+    "NODE_ENV": "development"
+  },
+  "includeCoAuthoredBy": true,
+  "cleanupPeriodDays": 30,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Log bash commands for audit",
+            "command": "jq -r '\"\\(.tool_input.command) - \\(.tool_input.description // \"No description\")\"' >> ~/.claude/bash-command-log.txt"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Block console.log in source files",
+            "command": "FILE=$(echo $STDIN_JSON | jq -r '.tool_input.file_path // \"\"'); CONTENT=$(echo $STDIN_JSON | jq -r '.tool_input.content // \"\"'); if [[ \"$FILE\" =~ \\.(js|jsx|ts|tsx)$ ]] && echo \"$CONTENT\" | grep -q 'console\\.log'; then echo 'Warning: console.log statements should be removed before committing' >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Run npm audit when package.json changes",
+            "command": "FILE=$(echo $STDIN_JSON | jq -r '.tool_input.file_path // \"\"'); if [[ \"$FILE\" == \"package.json\" ]]; then echo 'Checking for vulnerable dependencies...'; npm audit --audit-level=moderate; fi",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Auto-format with Prettier",
+            "command": "FILE=$(echo $STDIN_JSON | jq -r '.tool_input.file_path // \"\"'); if [[ \"$FILE\" =~ \\.(js|jsx|ts|tsx|json|css|scss)$ ]]; then npx prettier --write \"$FILE\" 2>/dev/null; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Log notifications",
+            "command": "echo \"Claude Code notification: $(date)\" >> ~/.claude/notifications.log"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Final type check and lint on changed files",
+            "command": "if [[ -f package.json ]]; then CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -E '\\.(js|jsx|ts|tsx)$'); if [[ -n \"$CHANGED\" ]]; then echo 'Running final quality check...'; npx tsc --noEmit 2>&1 && npx eslint $CHANGED 2>&1; fi; fi",
+            "timeout": 90
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Run tests for changed source files",
+            "command": "if [[ -f package.json ]]; then CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -E '\\.(js|jsx|ts|tsx)$' | grep -vE '\\.(test|spec)\\.'); if [[ -n \"$CHANGED\" ]]; then echo 'Running related tests...'; if command -v vitest >/dev/null 2>&1; then npx vitest run --passWithNoTests 2>&1; elif command -v jest >/dev/null 2>&1; then npx jest --passWithNoTests 2>&1; fi; fi; fi",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Bundle size analysis hint",
+            "command": "if [[ -f package.json ]] && git diff --name-only HEAD 2>/dev/null | grep -qE '\\.(js|jsx|ts|tsx)$'; then if command -v bundlesize >/dev/null 2>&1; then npx bundlesize 2>&1; else echo 'Bundle analysis: npx webpack-bundle-analyzer (run manually if needed)'; fi; fi",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
