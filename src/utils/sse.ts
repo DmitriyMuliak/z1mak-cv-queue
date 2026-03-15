@@ -46,11 +46,13 @@ export const sendSSE = async (
   reply: FastifyReply,
   id: string,
   event: SSEEvent,
-  data: SSEData | Record<string, unknown>
+  data: SSEData | Record<string, unknown>,
+  retryMs?: number
 ): Promise<boolean> => {
   if (reply.raw.destroyed) return false;
 
-  const msg = `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const retryLine = retryMs !== undefined ? `retry: ${retryMs}\n` : '';
+  const msg = `${retryLine}id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const canWrite = reply.raw.write(msg);
 
   if (!canWrite) {
